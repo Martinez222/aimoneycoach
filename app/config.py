@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str
-    groq_api_key: str
+    groq_api_key: str = ""
     groq_model: str = "mixtral-8x7b-32768"
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
