@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AI Money Coach">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1f6a5a" />
+      <stop offset="100%" stop-color="#2f876f" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)" />
+  <circle cx="32" cy="24" r="15" fill="#f4efe6" />
+  <ellipse cx="32" cy="41" rx="15" ry="5" fill="#ead8b8" />
+  <text x="32" y="25" fill="#1f6a5a" font-family="Segoe UI, Trebuchet MS, sans-serif" font-size="13" font-weight="700" text-anchor="middle">AI</text>
+  <path d="M20 38.5c4-3 20-3 24 0" fill="none" stroke="#f4efe6" stroke-linecap="round" stroke-width="2.5" />
+</svg>

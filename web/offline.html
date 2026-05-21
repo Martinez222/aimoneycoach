@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Money Coach</title>
+  <meta name="theme-color" content="#1f6a5a">
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --panel: rgba(255, 252, 246, 0.92);
+      --line: rgba(35, 52, 46, 0.12);
+      --text: #20322d;
+      --muted: #6a7a73;
+      --accent: #1f6a5a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(234, 216, 184, 0.9), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(31, 106, 90, 0.16), transparent 28%),
+        linear-gradient(145deg, #f9f5ec 0%, #f3ede1 48%, #eef3ee 100%);
+    }
+
+    .offline-card {
+      width: min(560px, 100%);
+      padding: 32px;
+      border-radius: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: 0 28px 60px rgba(37, 52, 46, 0.12);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    h1 {
+      margin: 0 0 14px;
+      font-size: clamp(2rem, 4vw, 3rem);
+      line-height: 1.05;
+    }
+
+    p {
+      margin: 0 0 14px;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .primary-btn,
+    .ghost-btn {
+      border: 0;
+      cursor: pointer;
+      padding: 14px 18px;
+      border-radius: 999px;
+      font: inherit;
+    }
+
+    .primary-btn {
+      background: linear-gradient(135deg, var(--accent) 0%, #2f876f 100%);
+      color: #f5fdf9;
+      text-decoration: none;
+    }
+
+    .ghost-btn {
+      background: rgba(31, 106, 90, 0.08);
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <main class="offline-card">
+    <p class="eyebrow" id="offlineKicker">AI Money Coach</p>
+    <h1 id="offlineTitle">Esti offline acum.</h1>
+    <p id="offlineBody">
+      Daca ai mai deschis aplicatia pe acest dispozitiv, ultima versiune salvata poate fi disponibila imediat ce revii la ecranul principal.
+    </p>
+    <p id="offlineHint">
+      Cand revine conexiunea, chat-ul, ofertele live si actualizarea planului vor functiona din nou normal.
+    </p>
+    <div class="actions">
+      <a class="primary-btn" href="/" id="offlineBack">Inapoi in aplicatie</a>
+      <button class="ghost-btn" id="offlineReload" type="button">Incearca din nou</button>
+    </div>
+  </main>
+  <script>
+    (function () {
+      const locale = localStorage.getItem("aimoneycoach_locale") === "en" ? "en" : "ro";
+      if (locale === "en") {
+        document.documentElement.lang = "en";
+        document.title = "AI Money Coach";
+        document.getElementById("offlineTitle").textContent = "You are offline right now.";
+        document.getElementById("offlineBody").textContent =
+          "If you already opened the app on this device, the last saved view may still be available once you return to the main screen.";
+        document.getElementById("offlineHint").textContent =
+          "When your connection returns, chat, live offers, and plan updates will work normally again.";
+        document.getElementById("offlineBack").textContent = "Back to the app";
+        document.getElementById("offlineReload").textContent = "Try again";
+      }
+
+      document.getElementById("offlineReload").addEventListener("click", function () {
+        window.location.reload();
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+@baseUrl = http://127.0.0.1:8000
+@email = demo@example.com
+@password = Parola123!
+
+### 1. Register
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "full_name": "Demo User"
+}
+
+### Copy the access_token from the response into the token variable below.
+@token = paste_token_here
+
+### 2. Save financial profile
+POST {{baseUrl}}/profile/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "monthly_income": 9000,
+  "monthly_expenses": 5500,
+  "savings": 18000,
+  "debts": 4000,
+  "risk_profile": "moderate",
+  "financial_goals": ["emergency_fund", "investing", "retirement"]
+}
+
+### 3. Overview before plan generation
+GET {{baseUrl}}/coach/overview
+Authorization: Bearer {{token}}
+
+### 4. Generate coaching plan
+POST {{baseUrl}}/coach/plan
+Authorization: Bearer {{token}}
+
+### 5. Ask the financial coach
+POST {{baseUrl}}/chat/ask
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "message": "Cum ar trebui sa imi impart economiile in urmatoarele 6 luni?"
+}
+
+### 6. Read chat history
+GET {{baseUrl}}/chat/history?limit=5
+Authorization: Bearer {{token}}

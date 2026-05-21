@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Money Coach</title>
+  <meta name="theme-color" content="#1f6a5a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="AI Money Coach">
+  <script>
+    (function () {
+      try {
+        var savedLocale = localStorage.getItem("aimoneycoach_locale");
+        document.documentElement.lang = savedLocale === "en" ? "en" : "ro";
+      } catch (error) {
+        document.documentElement.lang = "ro";
+      }
+      document.documentElement.setAttribute("data-i18n-ready", "false");
+    })();
+  </script>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/web/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/web/styles.css">
+  <noscript>
+    <style>
+      html[data-i18n-ready="false"] .page-shell {
+        opacity: 1;
+        visibility: visible;
+      }
+    </style>
+  </noscript>
+</head>
+<body>
+  <div class="page-shell">
+    <div class="topbar">
+      <div class="topbar-cluster">
+        <span id="connectionBadge" class="connection-badge">Online</span>
+        <button id="installAppBtn" class="ghost-btn install-btn hidden" data-i18n="pwa.install" type="button">
+          Instaleaza aplicatia
+        </button>
+      </div>
+      <div class="lang-switch" aria-label="Language switcher">
+        <button class="lang-btn active" data-locale="ro" type="button">RO</button>
+        <button class="lang-btn" data-locale="en" type="button">EN</button>
+      </div>
+    </div>
+    <p id="pwaHelperText" class="pwa-helper hidden"></p>
+    <div id="offlineBanner" class="offline-banner hidden" aria-live="polite">
+      <strong data-i18n="pwa.offlineTitle">Mod offline activ</strong>
+      <p data-i18n="pwa.offlineBody">
+        Vezi ultima stare salvata pe acest dispozitiv. Chat-ul si ofertele live revin cand ai internet.
+      </p>
+    </div>
+
+    <section class="auth-panel" id="authPanel">
+      <div class="auth-card">
+        <p class="eyebrow">AI Money Coach</p>
+        <h1 data-i18n="auth.title">Finante personale, fara batai de cap.</h1>
+        <p class="lede" data-i18n="auth.lede">
+          Intri, completezi cateva date si apoi vorbesti cu un coach financiar personalizat.
+          Restul se intampla in fundal.
+        </p>
+
+        <div class="auth-switch">
+          <button class="switch-btn active" data-mode="login" data-i18n="auth.loginTab" type="button">Login</button>
+          <button class="switch-btn" data-mode="register" data-i18n="auth.registerTab" type="button">Cont nou</button>
+        </div>
+
+        <form id="authForm" class="stack">
+          <label class="field" id="fullNameField">
+            <span data-i18n="auth.fullName">Nume</span>
+            <input
+              id="fullNameInput"
+              name="full_name"
+              type="text"
+              data-i18n-placeholder="auth.fullNamePlaceholder"
+              placeholder="Ex: Andrei Popescu"
+            >
+          </label>
+
+          <label class="field">
+            <span data-i18n="auth.email">Email</span>
+            <input
+              id="emailInput"
+              name="email"
+              type="email"
+              data-i18n-placeholder="auth.emailPlaceholder"
+              placeholder="tu@exemplu.ro"
+              required
+            >
+          </label>
+
+          <label class="field">
+            <span data-i18n="auth.password">Parola</span>
+            <input
+              id="passwordInput"
+              name="password"
+              type="password"
+              data-i18n-placeholder="auth.passwordPlaceholder"
+              placeholder="Parola ta"
+              required
+            >
+          </label>
+
+          <button id="authSubmitBtn" class="primary-btn" type="submit">Intra</button>
+          <p class="helper-text" data-i18n="auth.helper">
+            Dupa autentificare, profilul si chat-ul apar pe aceeasi pagina.
+          </p>
+          <p id="authMessage" class="status-line"></p>
+        </form>
+      </div>
+    </section>
+
+    <section class="app-panel hidden" id="appPanel">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow" data-i18n="dashboard.kicker">Tablou de bord</p>
+          <h2><span data-i18n="dashboard.welcome">Bun venit,</span> <span id="userGreeting">utilizator</span></h2>
+        </div>
+        <div class="header-actions">
+          <span class="token-state" id="aiStateBadge">Fallback local</span>
+          <button id="clearDataBtn" class="ghost-btn danger-btn" data-i18n="dashboard.clearData" type="button">
+            Sterge toate datele
+          </button>
+          <button id="logoutBtn" class="ghost-btn" data-i18n="dashboard.logout" type="button">Logout</button>
+        </div>
+      </header>
+
+      <div class="dashboard-grid">
+        <section class="profile-card">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow" data-i18n="profile.kicker">Date editabile</p>
+              <h3 data-i18n="profile.title">Profil financiar</h3>
+            </div>
+            <span class="card-hint" data-i18n="profile.hint">Salvezi o data, apoi chat-ul devine personalizat.</span>
+          </div>
+
+          <form id="profileForm" class="form-grid">
+            <div class="emergency-card field-wide">
+              <div class="card-heading compact">
+                <div>
+                  <p class="eyebrow" data-i18n="profile.emergencyKicker">Fond de siguranta</p>
+                  <h4 data-i18n="profile.emergencyTitle">Ce fond de urgenta ai acum?</h4>
+                </div>
+                <span class="card-hint" data-i18n="profile.emergencyHint">Separat de vacante, investitii si alte obiective.</span>
+              </div>
+
+              <label class="field">
+                <span data-i18n="profile.emergencyFund">Fond de urgenta separat</span>
+                <input name="emergency_fund" type="number" min="0" step="0.01" placeholder="12000" required>
+              </label>
+
+              <p class="emergency-note" data-i18n="profile.emergencyNote">
+                Pune aici doar banii pastrati pentru cheltuieli neprevazute, nu economiile pentru vacanta, casa sau investitii.
+              </p>
+
+              <div id="emergencyPreview" class="emergency-preview">
+                <strong id="emergencyPreviewTitle" data-i18n="profile.emergencyPreviewDefault">
+                  Completeaza datele si vezi instant cate luni acoperi.
+                </strong>
+                <p id="emergencyPreviewMeta" class="emergency-preview-meta"></p>
+              </div>
+            </div>
+
+            <label class="field">
+              <span data-i18n="profile.income">Venit lunar</span>
+              <input name="monthly_income" type="number" min="1" step="0.01" placeholder="9000" required>
+            </label>
+
+            <label class="field">
+              <span data-i18n="profile.expenses">Cheltuieli lunare</span>
+              <input name="monthly_expenses" type="number" min="1" step="0.01" placeholder="5500" required>
+            </label>
+
+            <label class="field">
+              <span data-i18n="profile.savings">Economii pentru obiective</span>
+              <input name="savings" type="number" min="0" step="0.01" placeholder="18000" required>
+            </label>
+
+            <label class="field">
+              <span data-i18n="profile.debts">Datorii</span>
+              <input name="debts" type="number" min="0" step="0.01" placeholder="4000" required>
+            </label>
+
+            <label class="field">
+              <span data-i18n="profile.riskProfile">Profil de risc</span>
+              <select name="risk_profile">
+                <option value="conservative" data-i18n="profile.riskConservative">Conservator</option>
+                <option value="moderate" data-i18n="profile.riskModerate" selected>Moderat</option>
+                <option value="aggressive" data-i18n="profile.riskAggressive">Agresiv</option>
+              </select>
+            </label>
+
+            <label class="field field-wide">
+              <span data-i18n="profile.goals">Obiective</span>
+              <input
+                name="financial_goals"
+                type="text"
+                data-i18n-placeholder="profile.goalsPlaceholder"
+                placeholder="emergency_fund, investing, retirement"
+              >
+            </label>
+
+            <button id="saveProfileBtn" class="primary-btn field-wide" data-i18n="profile.save" type="submit">
+              Salveaza datele
+            </button>
+          </form>
+
+          <p id="profileMessage" class="status-line"></p>
+
+          <div class="goal-quick-box">
+            <div class="card-heading compact">
+              <div>
+                <p class="eyebrow" data-i18n="goal.quickKicker">Obiectiv rapid</p>
+                <h4 data-i18n="goal.quickTitle">Vreau un plan pentru ceva concret</h4>
+              </div>
+            </div>
+
+            <form id="goalForm" class="goal-grid">
+              <label class="field">
+                <span data-i18n="goal.name">Obiectiv</span>
+                <input
+                  name="goal_name"
+                  type="text"
+                  data-i18n-placeholder="goal.namePlaceholder"
+                  placeholder="Ex: vacanta"
+                  required
+                >
+              </label>
+
+              <label class="field">
+                <span data-i18n="goal.amount">Suma dorita</span>
+                <input name="target_amount" type="number" min="1" step="0.01" placeholder="9000" required>
+              </label>
+
+              <label class="field">
+                <span data-i18n="goal.months">In cate luni?</span>
+                <input name="target_months" type="number" min="1" max="120" placeholder="6" required>
+              </label>
+
+              <label class="field checkbox-field">
+                <input name="allow_credit_gap" type="checkbox" checked>
+                <span data-i18n="goal.allowCredit">Daca lipseste ceva, cauta si variante de finantare</span>
+              </label>
+
+              <button class="primary-btn field-wide" data-i18n="goal.generate" type="submit">Genereaza planul</button>
+            </form>
+
+            <p id="goalMessage" class="status-line"></p>
+          </div>
+        </section>
+
+        <section class="overview-card">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow" data-i18n="overview.kicker">In fundal</p>
+              <h3 data-i18n="overview.title">Rezumat automat</h3>
+            </div>
+          </div>
+
+          <div class="stat-grid">
+            <article class="stat-box">
+              <span class="stat-label" data-i18n="overview.healthScore">Scor financiar</span>
+              <strong id="healthScoreValue">-</strong>
+            </article>
+            <article class="stat-box">
+              <span class="stat-label" data-i18n="overview.riskScore">Scor risc</span>
+              <strong id="riskScoreValue">-</strong>
+            </article>
+            <article class="stat-box">
+              <span class="stat-label" data-i18n="overview.savingsCapacity">Economii lunare</span>
+              <strong id="savingsCapacityValue">-</strong>
+            </article>
+            <article class="stat-box">
+              <span class="stat-label" data-i18n="overview.emergencyFund">Fond urgenta</span>
+              <strong id="emergencyFundValue">-</strong>
+            </article>
+          </div>
+
+          <div class="summary-block">
+            <h4 data-i18n="overview.aboutYou">Ce intelege aplicatia despre tine</h4>
+            <p id="snapshotSummary">Completeaza profilul pentru a vedea rezumatul automat.</p>
+          </div>
+
+          <div class="summary-block">
+            <h4 data-i18n="overview.yourPlan">Planul tau</h4>
+            <p id="planSummary">Dupa salvare, planul se genereaza automat.</p>
+            <p id="nextStepText" class="next-step">Completeaza profilul pentru a porni.</p>
+          </div>
+
+          <div class="summary-block">
+            <h4 data-i18n="overview.goalPlan">Plan pentru obiectiv</h4>
+            <p id="goalSummary">Exemplu: vacanta de 9000 lei in 6 luni.</p>
+            <div class="goal-dashboard-grid">
+              <section class="goal-score-box">
+                <div class="goal-score-ring" id="goalScoreRing">
+                  <strong id="goalScoreValue">-</strong>
+                </div>
+                <div class="goal-score-copy">
+                  <h5 data-i18n="goal.scoreTitle">Scor de realizare</h5>
+                  <p id="goalScoreLabel" class="score-label">-</p>
+                  <p id="goalScoreSummary" class="score-summary" data-i18n="goal.scoreDefault">
+                    Genereaza un plan pentru a vedea cat de realizabil este obiectivul.
+                  </p>
+                </div>
+              </section>
+
+              <section class="goal-pie-box">
+                <div class="card-heading compact">
+                  <div>
+                    <p class="eyebrow" data-i18n="goal.pieKicker">Placinta obiective</p>
+                    <h5 data-i18n="goal.pieTitle">Harta banilor tai</h5>
+                  </div>
+                </div>
+                <div class="goal-pie-layout">
+                  <div class="goal-pie-chart" id="goalPieChart"></div>
+                  <div class="goal-pie-legend" id="goalPieLegend"></div>
+                </div>
+              </section>
+            </div>
+
+            <section class="simulator-box">
+              <div class="card-heading compact">
+                <div>
+                  <p class="eyebrow" data-i18n="goal.simulatorKicker">Simulator</p>
+                  <h5 data-i18n="goal.simulatorTitle">Ce se intampla daca mai poti economisi?</h5>
+                </div>
+              </div>
+              <label class="simulator-label" for="goalSimulatorRange" data-i18n="goal.simulatorLabel">
+                Extra economisire lunara
+              </label>
+              <input id="goalSimulatorRange" type="range" min="0" max="0" step="100" value="0" disabled>
+              <div class="simulator-meta">
+                <strong id="goalSimulatorValue">+0 RON</strong>
+                <span id="goalSimulatorHint" data-i18n="goal.simulatorHint">
+                  Muta sliderul dupa ce generezi primul plan.
+                </span>
+              </div>
+            </section>
+
+            <section class="variant-box">
+              <div class="card-heading compact">
+                <div>
+                  <p class="eyebrow" data-i18n="goal.variantsKicker">3 variante de plan</p>
+                  <h5 data-i18n="goal.variantsTitle">Alege ritmul care ti se potriveste</h5>
+                </div>
+              </div>
+              <div id="goalVariants" class="variant-grid"></div>
+            </section>
+
+            <div id="goalInsights" class="goal-insights"></div>
+            <div class="goal-actions-box">
+              <h5 data-i18n="overview.nextActions">Ce faci mai departe</h5>
+              <div id="goalNextActions" class="goal-action-list"></div>
+            </div>
+            <section id="loanMarketBox" class="market-box hidden">
+              <div class="card-heading compact">
+                <div>
+                  <p class="eyebrow" data-i18n="goal.marketKicker">Piata verificata</p>
+                  <h5 data-i18n="goal.marketTitle">Comparatie intre banci</h5>
+                </div>
+              </div>
+              <p id="loanMarketSummary" class="market-summary"></p>
+              <p id="loanMarketBanks" class="market-banks"></p>
+            </section>
+            <div class="offer-grid">
+              <section class="offer-group">
+                <h5 data-i18n="offers.safe">Economisire si titluri de stat</h5>
+                <div id="goalSafeOffers" class="offer-list"></div>
+              </section>
+
+              <section class="offer-group">
+                <h5 data-i18n="offers.funds">Fonduri si ETF-uri</h5>
+                <div id="goalFundOffers" class="offer-list"></div>
+              </section>
+
+              <section class="offer-group">
+                <h5 data-i18n="offers.stocks">Actiuni</h5>
+                <div id="goalStockOffers" class="offer-list"></div>
+              </section>
+
+              <section class="offer-group">
+                <h5 data-i18n="offers.brokers">Brokeri pentru ETF-uri si actiuni</h5>
+                <div id="goalBrokerOffers" class="offer-list"></div>
+              </section>
+
+              <section class="offer-group">
+                <h5 data-i18n="offers.loans">Finantare pentru diferenta</h5>
+                <div id="goalLoanOffers" class="offer-list"></div>
+              </section>
+            </div>
+            <p class="disclaimer-note" data-i18n="disclaimer.goal">
+              Disclaimer: acest plan este orientativ. Ofertele, costurile si randamentele se pot schimba si trebuie verificate la sursa inainte de orice decizie.
+            </p>
+          </div>
+        </section>
+
+        <section class="chat-card">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow" data-i18n="chat.kicker">Chat personalizat</p>
+              <h3 data-i18n="chat.title">Intreaba direct</h3>
+            </div>
+            <span class="card-hint" data-i18n="chat.hint">Raspunsurile folosesc profilul si planul tau.</span>
+          </div>
+
+          <div id="chatMessages" class="chat-messages">
+            <div class="chat-bubble assistant" data-i18n="chat.empty">
+              Salut! Dupa ce completezi profilul, iti raspund pe baza situatiei tale financiare.
+            </div>
+          </div>
+
+          <form id="chatForm" class="chat-form">
+            <input
+              id="chatInput"
+              type="text"
+              data-i18n-placeholder="chat.placeholder"
+              placeholder="Ex: Vreau o vacanta de 9000 lei in 6 luni. Ce fac?"
+              required
+            >
+            <button class="primary-btn" data-i18n="chat.send" type="submit">Trimite</button>
+          </form>
+          <p id="chatMessage" class="status-line"></p>
+          <p class="disclaimer-note" data-i18n="disclaimer.chat">
+            Disclaimer: raspunsurile personalizate sunt doar informative si educative si nu inlocuiesc consultanta financiara, fiscala, juridica sau investitionala.
+          </p>
+        </section>
+      </div>
+    </section>
+  </div>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
