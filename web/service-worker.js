@@ -1,4 +1,4 @@
-const CACHE_NAME = "aimoneycoach-shell-v1";
+const CACHE_NAME = "aimoneycoach-shell-v2";
 const APP_SHELL = [
   "/",
   "/offline",
@@ -91,16 +91,18 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      const networkFetch = fetch(request)
-        .then((response) => {
-          const cloned = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, cloned));
-          return response;
-        })
-        .catch(() => cachedResponse);
-
-      return cachedResponse || networkFetch;
-    })
+    fetch(request)
+      .then((response) => {
+        const cloned = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, cloned));
+        return response;
+      })
+      .catch(async () => {
+        return (
+          (await caches.match(request)) ||
+          (await caches.match("/")) ||
+          (await caches.match("/offline"))
+        );
+      })
   );
 });
