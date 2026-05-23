@@ -65,10 +65,16 @@ MORTGAGE_BANK_SCOPE = [
 ]
 
 BANK_RANKS = {bank_name: index + 1 for index, bank_name in enumerate(TOP_10_BANKS)}
-UNSECURED_PERSONAL_MARKET_LIMIT_RON = 200000.0
+UNSECURED_PERSONAL_MARKET_LIMIT_RON = 150000.0
 CREDIT_MATURITY_AGE_BY_GENDER = {
     "male": 70,
     "female": 65,
+}
+MORTGAGE_MATURITY_AGE = 70
+PRODUCT_MAX_TERM_MONTHS = {
+    "personal_unsecured_loan": 60,
+    "secured_personal_loan": 120,
+    "mortgage": 360,
 }
 MIN_LOAN_TERM_MONTHS = 12
 
@@ -296,6 +302,7 @@ class MarketOfferService:
     ) -> str:
         normalized_goal = self._ascii_fold((goal_name or "").lower())
         credit_need = max(gap_amount, requested_credit_amount or 0.0)
+        refinance_keywords = ("refinant", "refinance")
         housing_keywords = (
             "casa",
             "apartament",
@@ -313,11 +320,17 @@ class MarketOfferService:
         )
         if any(keyword in normalized_goal for keyword in housing_keywords):
             return "mortgage"
+        if any(keyword in normalized_goal for keyword in refinance_keywords) and any(
+            keyword in normalized_goal for keyword in ("ipotec", "mortgage", "imobil", "casa", "apartament", "home", "house", "property")
+        ):
+            return "mortgage"
         if credit_need > UNSECURED_PERSONAL_MARKET_LIMIT_RON or target_months > 60:
             return "secured_personal_loan"
         return "personal_unsecured_loan"
 
     def get_credit_maturity_age(self, offer_type: str, credit_gender: str | None = None) -> int:
+        if offer_type == "mortgage":
+            return MORTGAGE_MATURITY_AGE
         normalized_gender = (credit_gender or "").lower()
         return CREDIT_MATURITY_AGE_BY_GENDER.get(normalized_gender, 65)
 
@@ -327,10 +340,14 @@ class MarketOfferService:
         age: int | None,
         credit_gender: str | None = None,
     ) -> int | None:
+        product_cap = PRODUCT_MAX_TERM_MONTHS.get(offer_type)
         if age is None:
-            return None
+            return product_cap
         maturity_age = self.get_credit_maturity_age(offer_type, credit_gender)
-        return max(0, (maturity_age - age) * 12)
+        age_limited_term = max(0, (maturity_age - age) * 12)
+        if product_cap is None:
+            return age_limited_term
+        return min(product_cap, age_limited_term)
 
     def adapt_loan_offers_for_term_cap(
         self,

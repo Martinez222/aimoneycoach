@@ -8,6 +8,9 @@ class RiskService:
     AI only explains - this service decides.
     """
 
+    def get_emergency_fund_base_expenses(self, profile: FinancialProfile) -> float:
+        return max(0.0, profile.monthly_expenses)
+
     def get_monthly_debt_obligations(self, profile: FinancialProfile) -> float:
         return max(0.0, getattr(profile, "monthly_debt_obligations", 0.0) or 0.0)
 
@@ -31,10 +34,10 @@ class RiskService:
         if (
             profile.risk_profile == "conservative"
             or savings_capacity <= 0
-            or debt_ratio >= 0.4
+            or debt_ratio >= 0.35
             or total_debt_ratio >= 0.8
         ):
-            return 9
+            return 6
         if (
             profile.risk_profile == "aggressive"
             and savings_rate >= 0.2
@@ -42,7 +45,7 @@ class RiskService:
             and total_debt_ratio <= 0.2
         ):
             return 3
-        return 6
+        return 4
 
     def calculate_risk_score(self, profile: FinancialProfile) -> int:
         """
@@ -52,7 +55,7 @@ class RiskService:
         score = 50  # baseline
 
         monthly_income = profile.monthly_income
-        monthly_expenses = self.get_monthly_required_outflow(profile)
+        monthly_expenses = self.get_emergency_fund_base_expenses(profile)
         emergency_fund = getattr(profile, "emergency_fund", 0.0)
         debts = profile.debts
         debt_obligations = self.get_monthly_debt_obligations(profile)
@@ -108,7 +111,7 @@ class RiskService:
         score = 50
 
         monthly_income = profile.monthly_income
-        monthly_expenses = self.get_monthly_required_outflow(profile)
+        monthly_expenses = self.get_emergency_fund_base_expenses(profile)
         emergency_fund = getattr(profile, "emergency_fund", 0.0)
         debts = profile.debts
         debt_obligations = self.get_monthly_debt_obligations(profile)
@@ -175,9 +178,9 @@ class RiskService:
     def get_emergency_fund_status(self, profile: FinancialProfile) -> dict:
         current_amount = getattr(profile, "emergency_fund", 0.0)
         target_months = self.get_emergency_target_months(profile)
-        required_outflow = self.get_monthly_required_outflow(profile)
-        months = current_amount / required_outflow if required_outflow > 0 else 0
-        target = required_outflow * target_months
+        emergency_base = self.get_emergency_fund_base_expenses(profile)
+        months = current_amount / emergency_base if emergency_base > 0 else 0
+        target = emergency_base * target_months
         shortfall = max(0.0, target - current_amount)
         return {
             "current_months": round(months, 1),

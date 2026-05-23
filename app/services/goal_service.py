@@ -114,23 +114,22 @@ class GoalService:
 
         term_label = self._format_term_note(term_cap_months, locale)
         if loan_family == "mortgage":
-            gender_label = "male" if credit_gender == "male" else "female"
             note = (
-                f"For mortgage planning, I now apply a hard maturity cap of {maturity_age} years for a {gender_label} borrower; at your age, that means about {term_label} maximum financing term."
+                f"For mortgage planning, I cap the product at 30 years and also stop at age {maturity_age}; at your age, that leaves about {term_label} maximum financing term."
                 if english
-                else f"Pentru mortgage, aplic acum plafonul fix de scadenta finala la {maturity_age} ani pentru profilul {'barbat' if credit_gender == 'male' else 'femeie'}; la varsta ta, asta inseamna aproximativ {term_label} termen maxim de finantare."
+                else f"Pentru mortgage, limitez produsul la maximum 30 de ani si opresc finantarea cel tarziu la varsta de {maturity_age} ani; la varsta ta, asta inseamna aproximativ {term_label} termen maxim."
             )
         elif loan_family == "secured_personal_loan":
             note = (
-                f"For secured personal loans, I now apply a hard maturity cap of {maturity_age} years; at your age, that leaves roughly {term_label} maximum term."
+                f"For secured personal loans, I cap the product at 10 years and also stop at age {maturity_age}; at your age, that leaves about {term_label} maximum term."
                 if english
-                else f"Pentru creditele de nevoi personale cu ipoteca, aplic acum plafonul fix de scadenta finala la {maturity_age} ani; la varsta ta, asta lasa cam {term_label} termen maxim."
+                else f"Pentru creditele de nevoi personale cu ipoteca, limitez produsul la maximum 10 ani si opresc finantarea cel tarziu la {maturity_age} ani; la varsta ta, asta lasa cam {term_label} termen maxim."
             )
         else:
             note = (
-                f"For unsecured personal loans, I now apply a hard maturity cap of {maturity_age} years; at your age, that leaves roughly {term_label} maximum term."
+                f"For unsecured personal loans, I cap the product at 5 years and also stop at age {maturity_age}; at your age, that leaves about {term_label} maximum term."
                 if english
-                else f"Pentru creditele de nevoi personale fara ipoteca, aplic acum plafonul fix de scadenta finala la {maturity_age} ani; la varsta ta, asta lasa cam {term_label} termen maxim."
+                else f"Pentru creditele de nevoi personale fara ipoteca, limitez produsul la maximum 5 ani si opresc finantarea cel tarziu la {maturity_age} ani; la varsta ta, asta lasa cam {term_label} termen maxim."
             )
         return maturity_age, term_cap_months, note
 
@@ -586,20 +585,18 @@ class GoalService:
             normalized_target_amount = round(requested_target_amount * reference_fx_rate, 2)
 
         monthly_capacity = self.risk_service.get_monthly_savings_capacity(profile)
-        monthly_required_outflow = self.risk_service.get_monthly_required_outflow(profile)
+        emergency_base_expenses = self.risk_service.get_emergency_fund_base_expenses(profile)
         emergency_status = self.risk_service.get_emergency_fund_status(profile)
         simulator_max = self._build_simulator_max(profile.monthly_income, monthly_capacity)
         extra_monthly_savings = min(max(data.extra_monthly_savings, 0.0), simulator_max)
         effective_monthly_contribution = monthly_capacity + extra_monthly_savings
         emergency_target_months = emergency_status["target_months"]
         emergency_fund_target = emergency_status["target_amount"]
-        emergency_months_current = (
-            profile.emergency_fund / monthly_required_outflow if monthly_required_outflow else 0.0
-        )
+        emergency_months_current = emergency_status["current_months"]
         debt_ratio = self.risk_service.get_monthly_debt_service_ratio(profile)
 
         base_scenario = self._compute_scenario(
-            monthly_expenses=monthly_required_outflow,
+            monthly_expenses=emergency_base_expenses,
             goal_savings=profile.savings,
             emergency_fund=profile.emergency_fund,
             target_amount=normalized_target_amount,
@@ -685,7 +682,7 @@ class GoalService:
             credit_fully_covers_gap = credit_affordable_amount + 0.01 >= base_scenario.funding_gap
 
         base_scenario = self._compute_scenario(
-            monthly_expenses=monthly_required_outflow,
+            monthly_expenses=emergency_base_expenses,
             goal_savings=profile.savings,
             emergency_fund=profile.emergency_fund,
             target_amount=normalized_target_amount,
@@ -718,7 +715,7 @@ class GoalService:
 
         plan_variants, recommended_variant_id = self._build_plan_variants(
             monthly_income=profile.monthly_income,
-            monthly_expenses=monthly_required_outflow,
+            monthly_expenses=emergency_base_expenses,
             monthly_debt_obligations=profile.monthly_debt_obligations,
             emergency_fund=profile.emergency_fund,
             savings=profile.savings,

@@ -53,9 +53,8 @@ class AIService:
         debts = profile_data.get("debts", 0.0)
         monthly_debt_obligations = profile_data.get("monthly_debt_obligations", 0.0)
         goals = profile_data.get("financial_goals", [])
-        committed_outflow = expenses + monthly_debt_obligations
         surplus = income - expenses - monthly_debt_obligations
-        emergency_months = emergency_fund / committed_outflow if committed_outflow else 0.0
+        emergency_months = emergency_fund / expenses if expenses else 0.0
         english = is_english(locale)
 
         strengths: list[str] = []
@@ -81,9 +80,9 @@ class AIService:
         if emergency_months >= emergency_target_months:
             strengths.append(
                 (
-                    f"you already have an emergency fund covering about {emergency_months:.1f} months of essential outflow"
+                    f"you already have an emergency fund covering about {emergency_months:.1f} months of living expenses"
                     if english
-                    else f"ai deja un fond de urgenta de aproximativ {emergency_months:.1f} luni de cheltuieli si rate fixe"
+                    else f"ai deja un fond de urgenta de aproximativ {emergency_months:.1f} luni de cheltuieli de baza"
                 )
             )
         else:
@@ -165,9 +164,8 @@ class AIService:
         savings = profile_data.get("savings", 0.0)
         debts = profile_data.get("debts", 0.0)
         monthly_debt_obligations = profile_data.get("monthly_debt_obligations", 0.0)
-        committed_outflow = expenses + monthly_debt_obligations
         surplus = income - expenses - monthly_debt_obligations
-        emergency_months = emergency_fund / committed_outflow if committed_outflow else 0.0
+        emergency_months = emergency_fund / expenses if expenses else 0.0
         english = is_english(locale)
 
         if surplus > 0:

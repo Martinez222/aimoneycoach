@@ -720,13 +720,13 @@ function computeEmergencyTargetMonths() {
   const debtRatio = income > 0 ? monthlyDebtObligations / income : 0;
   const totalDebtRatio = income > 0 ? debts / (income * 12) : 0;
 
-  if (riskProfile === "conservative" || savingsCapacity <= 0 || debtRatio >= 0.4 || totalDebtRatio >= 0.8) {
-    return 9;
+  if (riskProfile === "conservative" || savingsCapacity <= 0 || debtRatio >= 0.35 || totalDebtRatio >= 0.8) {
+    return 6;
   }
   if (riskProfile === "aggressive" && savingsRate >= 0.2 && debtRatio <= 0.2 && totalDebtRatio <= 0.2) {
     return 3;
   }
-  return 6;
+  return 4;
 }
 
 function updateEmergencyPreview() {
@@ -735,19 +735,17 @@ function updateEmergencyPreview() {
   }
 
   const expenses = Number(profileForm.elements.monthly_expenses.value || 0);
-  const monthlyDebtObligations = Number(profileForm.elements.monthly_debt_obligations.value || 0);
   const emergencyFund = Number(profileForm.elements.emergency_fund.value || 0);
-  const committedOutflow = expenses + monthlyDebtObligations;
 
-  if (committedOutflow <= 0) {
+  if (expenses <= 0) {
     emergencyPreviewTitle.textContent = t("profile.emergencyPreviewDefault");
     emergencyPreviewMeta.textContent = "";
     return;
   }
 
-  const currentMonths = emergencyFund / committedOutflow;
+  const currentMonths = emergencyFund / expenses;
   const targetMonths = computeEmergencyTargetMonths();
-  const targetAmount = targetMonths * committedOutflow;
+  const targetAmount = targetMonths * expenses;
   const shortfall = Math.max(0, targetAmount - emergencyFund);
 
   emergencyPreviewTitle.textContent = t("profile.emergencyPreviewCurrent", {
