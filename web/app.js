@@ -72,7 +72,7 @@ const translations = {
     "goal.chipProjected": "Poti ajunge la aproximativ {amount} lei pana la termen.",
     "goal.chipEmergency": "Fond minim de urgenta de pastrat: {amount} lei.",
     "goal.chipSafe": "{provider}: {product} cu {rate}% pe an.",
-    "goal.chipLoan": "{provider}: {product}, DAE {rate}%, rata estimata {payment} lei/luna.",
+    "goal.chipLoan": "{provider}: {product}, DAE {rate}%, rata realista ~{payment} lei/luna.",
     "goal.chipInvestment": "{product}: cotatie indicativa {price} {currency}.",
     "goal.scoreTitle": "Scor de realizare",
     "goal.scoreDefault": "Genereaza un plan pentru a vedea cat de realizabil este obiectivul.",
@@ -100,7 +100,7 @@ const translations = {
     "goal.variantInstrument": "Instrument cheie",
     "goal.marketKicker": "Piata verificata",
     "goal.marketTitle": "Comparatie intre banci",
-    "goal.marketSummary": "Am verificat top {scopeCount} banci mari din Romania pentru {family} si am gasit {offerCount} oferte publice comparabile.",
+    "goal.marketSummary": "Am verificat top {scopeCount} banci mari din Romania pentru {family} si am gasit {offerCount} oferte publice care se pot compara cu bugetul tau.",
     "goal.marketBanks": "Banci verificate: {banks}",
     "goal.marketFallbackFamily": "finantarea potrivita",
     "overview.kicker": "In fundal",
@@ -129,10 +129,16 @@ const translations = {
     "offers.stocksEmpty": "Actiunile individuale apar doar pentru profil mai agresiv si orizont mai lung.",
     "offers.brokersEmpty": "Brokerii apar aici cand planul include ETF-uri, fonduri sau actiuni care trebuie executate printr-o platforma de tranzactionare.",
     "offers.loansEmpty": "Nu este nevoie de finantare externa pentru acest obiectiv.",
+    "offers.loansNotRealistic": "Nu exista inca o oferta de credit care sa se incadreze realist in bugetul tau pentru acest gap.",
     "offers.source": "Sursa: {source}",
     "offers.perYear": "{value}% pe an",
     "offers.apr": "DAE {value}%",
     "offers.monthlyPayment": "rata ~{value} {currency}/luna",
+    "offers.paymentCap": "plafon profil ~{value} {currency}/luna",
+    "offers.affordableAmount": "finantare realista ~{value} {currency}",
+    "offers.remainingGap": "raman descoperiti ~{value} {currency}",
+    "offers.fullCoverage": "poate acoperi integral suma analizata",
+    "offers.partialCoverage": "acopera doar partial suma analizata",
     "offers.quote": "cotatie ~{value} {currency}",
     "offers.minimumFrom": "minim {value} {currency}",
     "offers.costAnnual": "cost anual ~{value}%",
@@ -243,7 +249,7 @@ const translations = {
     "goal.chipProjected": "You could reach about {amount} RON by the deadline.",
     "goal.chipEmergency": "Minimum emergency fund to keep: {amount} RON.",
     "goal.chipSafe": "{provider}: {product} at {rate}% per year.",
-    "goal.chipLoan": "{provider}: {product}, APR {rate}%, estimated payment {payment} RON/month.",
+    "goal.chipLoan": "{provider}: {product}, APR {rate}%, realistic payment ~{payment} RON/month.",
     "goal.chipInvestment": "{product}: indicative quote {price} {currency}.",
     "goal.scoreTitle": "Achievement score",
     "goal.scoreDefault": "Generate a plan to see how achievable your goal is.",
@@ -271,7 +277,7 @@ const translations = {
     "goal.variantInstrument": "Core instrument",
     "goal.marketKicker": "Market checked",
     "goal.marketTitle": "Bank comparison",
-    "goal.marketSummary": "I checked the top {scopeCount} major Romanian banks for {family} and found {offerCount} comparable public offers.",
+    "goal.marketSummary": "I checked the top {scopeCount} major Romanian banks for {family} and found {offerCount} public offers that still fit your budget.",
     "goal.marketBanks": "Banks checked: {banks}",
     "goal.marketFallbackFamily": "the relevant financing type",
     "overview.kicker": "In the background",
@@ -300,10 +306,16 @@ const translations = {
     "offers.stocksEmpty": "Individual stocks only appear for a more aggressive profile and a longer horizon.",
     "offers.brokersEmpty": "Broker options appear here when the plan includes ETFs, funds, or stocks that need execution through a trading platform.",
     "offers.loansEmpty": "No outside financing is needed for this goal.",
+    "offers.loansNotRealistic": "There is no loan offer yet that fits this gap realistically within your budget.",
     "offers.source": "Source: {source}",
     "offers.perYear": "{value}% per year",
     "offers.apr": "APR {value}%",
     "offers.monthlyPayment": "payment ~{value} {currency}/month",
+    "offers.paymentCap": "profile cap ~{value} {currency}/month",
+    "offers.affordableAmount": "realistic financing ~{value} {currency}",
+    "offers.remainingGap": "still uncovered ~{value} {currency}",
+    "offers.fullCoverage": "can cover the full reviewed amount",
+    "offers.partialCoverage": "covers only part of the reviewed amount",
     "offers.quote": "quote ~{value} {currency}",
     "offers.minimumFrom": "minimum {value} {currency}",
     "offers.costAnnual": "annual cost ~{value}%",
@@ -769,7 +781,36 @@ function formatOfferMeta(offer) {
   if (offer.indicative_monthly_payment) {
     parts.push(
       t("offers.monthlyPayment", {
-        value: Math.round(offer.indicative_monthly_payment),
+        value: Math.round(offer.affordable_monthly_payment || offer.indicative_monthly_payment),
+        currency: offer.currency,
+      })
+    );
+  }
+  if (offer.monthly_payment_cap) {
+    parts.push(
+      t("offers.paymentCap", {
+        value: Math.round(offer.monthly_payment_cap),
+        currency: offer.currency,
+      })
+    );
+  }
+  if (offer.affordable_amount) {
+    parts.push(
+      t("offers.affordableAmount", {
+        value: Math.round(offer.affordable_amount),
+        currency: offer.currency,
+      })
+    );
+  }
+  if (offer.covers_full_request === true) {
+    parts.push(t("offers.fullCoverage"));
+  } else if (offer.covers_full_request === false) {
+    parts.push(t("offers.partialCoverage"));
+  }
+  if (offer.uncovered_gap_after_offer) {
+    parts.push(
+      t("offers.remainingGap", {
+        value: Math.round(offer.uncovered_gap_after_offer),
         currency: offer.currency,
       })
     );
@@ -1135,6 +1176,9 @@ function renderGoalPlan(plan) {
   if (plan.credit_age_rule_note) {
     chips.push(plan.credit_age_rule_note);
   }
+  if (plan.credit_affordability_note) {
+    chips.push(plan.credit_affordability_note);
+  }
 
   if (plan.safe_saving_offers.length) {
     const bestSafe = plan.safe_saving_offers[0];
@@ -1154,7 +1198,7 @@ function renderGoalPlan(plan) {
         provider: bestLoan.provider,
         product: bestLoan.product_name,
         rate: bestLoan.dae_percent ? bestLoan.dae_percent.toFixed(2) : "-",
-        payment: Math.round(bestLoan.indicative_monthly_payment || 0),
+        payment: Math.round(bestLoan.affordable_monthly_payment || bestLoan.indicative_monthly_payment || 0),
       })
     );
   }
@@ -1200,7 +1244,9 @@ function renderGoalPlan(plan) {
     loanMarketBanks.textContent = t("goal.marketBanks", {
       banks: plan.loan_market_scope.join(", "),
     });
-    loanMarketCreditRule.textContent = plan.credit_age_rule_note || "";
+    loanMarketCreditRule.textContent = [plan.credit_affordability_note, plan.credit_age_rule_note]
+      .filter(Boolean)
+      .join(" ");
   } else {
     loanMarketSummary.textContent = "";
     loanMarketBanks.textContent = "";
@@ -1215,7 +1261,11 @@ function renderGoalPlan(plan) {
   renderOfferList("goalFundOffers", fundOffers, t("offers.fundsEmpty"));
   renderOfferList("goalStockOffers", stockOffers, t("offers.stocksEmpty"));
   renderOfferList("goalBrokerOffers", plan.broker_options || [], t("offers.brokersEmpty"));
-  renderOfferList("goalLoanOffers", plan.loan_options, t("offers.loansEmpty"));
+  renderOfferList(
+    "goalLoanOffers",
+    plan.loan_options,
+    plan.feasible_without_credit ? t("offers.loansEmpty") : t("offers.loansNotRealistic")
+  );
 }
 
 function addChatBubble(role, text) {

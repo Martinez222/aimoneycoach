@@ -43,6 +43,9 @@ class VariantConfig:
 
 
 class GoalService:
+    LOCAL_CURRENCY_DTI_LIMIT = 0.40
+    FX_CURRENCY_DTI_LIMIT = 0.20
+
     def __init__(self, db: AsyncSession):
         self.profile_repo = ProfileRepository(db)
         self.risk_service = RiskService()
@@ -151,6 +154,38 @@ class GoalService:
         rounded = ceil(raw_max / 100) * 100
         return float(min(5000.0, rounded))
 
+    def _get_credit_dti_limit(self, currency: str = "RON") -> float:
+        return self.LOCAL_CURRENCY_DTI_LIMIT if currency.upper() == "RON" else self.FX_CURRENCY_DTI_LIMIT
+
+    def _build_credit_affordability_note(
+        self,
+        monthly_income: float,
+        monthly_expenses: float,
+        currency: str = "RON",
+        locale: str = "ro",
+    ) -> tuple[float, float, float, str]:
+        english = is_english(locale)
+        dti_limit_ratio = self._get_credit_dti_limit(currency)
+        disposable_income = max(0.0, monthly_income - monthly_expenses)
+        dti_payment_cap = max(0.0, monthly_income * dti_limit_ratio)
+        monthly_payment_cap = max(0.0, min(disposable_income, dti_payment_cap))
+        dti_percent = round(dti_limit_ratio * 100, 0)
+
+        if monthly_payment_cap <= 0:
+            note = (
+                f"Based on your current budget, I do not treat any new loan payment as realistic right now: free cash flow is about {disposable_income:.0f} RON/month, and the prudential debt-to-income ceiling used here is {dti_percent:.0f}% of net income."
+                if english
+                else f"Pe bugetul tau actual, nu tratez nicio rata noua ca fiind realista acum: cashflow-ul liber este de aproximativ {disposable_income:.0f} lei/luna, iar plafonul prudent de indatorare folosit aici este de {dti_percent:.0f}% din venitul net."
+            )
+        else:
+            note = (
+                f"I cap the realistic monthly loan payment at about {monthly_payment_cap:.0f} RON, using the lower of your free cash flow ({disposable_income:.0f} RON/month) and a prudential debt-to-income ceiling of {dti_percent:.0f}% of net income ({dti_payment_cap:.0f} RON/month)."
+                if english
+                else f"Limitez rata realista la aproximativ {monthly_payment_cap:.0f} lei/luna, folosind valoarea mai mica dintre cashflow-ul tau liber ({disposable_income:.0f} lei/luna) si un plafon prudent de indatorare de {dti_percent:.0f}% din venitul net ({dti_payment_cap:.0f} lei/luna)."
+            )
+
+        return monthly_payment_cap, dti_limit_ratio * 100, disposable_income, note
+
     def _compute_scenario(
         self,
         monthly_expenses: float,
@@ -161,7 +196,7 @@ class GoalService:
         monthly_contribution: float,
         emergency_months_kept: int,
         allows_credit: bool,
-        has_loan_options: bool,
+        max_credit_coverage: float = 0.0,
     ) -> ScenarioMetrics:
         emergency_target = monthly_expenses * emergency_months_kept
         emergency_shortfall = max(0.0, emergency_target - emergency_fund)
@@ -178,7 +213,9 @@ class GoalService:
         funding_gap = max(0.0, target_amount - projected_total)
         feasible_without_credit = funding_gap <= 0.01
         uses_credit = allows_credit and funding_gap > 0.01
-        can_hit_target = feasible_without_credit or (uses_credit and has_loan_options)
+        can_hit_target = feasible_without_credit or (
+            uses_credit and funding_gap <= max(0.0, max_credit_coverage) + 0.01
+        )
 
         remaining_after_available = max(0.0, target_amount - available_now)
         if remaining_after_available <= 0:
@@ -405,10 +442,16 @@ class GoalService:
                 else f"Aceasta varianta urmareste termenul actual fara sa forteze prea mult bugetul si pastreaza {primary_instrument} in centru."
             )
         if scenario.uses_credit and scenario.funding_gap > 0:
+            if scenario.can_hit_target:
+                return (
+                    f"This version pushes harder on monthly saving and can bridge the difference with {primary_instrument}."
+                    if english
+                    else f"Aceasta varianta forteaza economisirea lunara si poate acoperi diferenta cu {primary_instrument}."
+                )
             return (
-                f"This version pushes harder on monthly saving and can bridge the difference with {primary_instrument}."
+                f"This version pushes monthly saving higher, but financing would still cover only part of the remaining gap."
                 if english
-                else f"Aceasta varianta forteaza economisirea lunara si poate acoperi diferenta cu {primary_instrument}."
+                else "Aceasta varianta forteaza economisirea lunara, dar finantarea ar acoperi totusi doar o parte din diferenta ramasa."
             )
         return (
             f"This version accelerates the monthly rhythm and leans on {primary_instrument} to move faster."
@@ -429,6 +472,7 @@ class GoalService:
         safe_saving_offers,
         investment_options,
         loan_options,
+        max_credit_coverage: float,
         allow_credit_gap: bool,
         emergency_target_months: int,
         locale: str,
@@ -453,7 +497,7 @@ class GoalService:
                 monthly_contribution=round(max(0.0, effective_monthly_contribution * config.monthly_multiplier), 2),
                 emergency_months_kept=config.emergency_months_kept,
                 allows_credit=config.allows_credit,
-                has_loan_options=bool(loan_options),
+                max_credit_coverage=max_credit_coverage,
             )
             achievement = self._build_achievement(
                 target_amount=target_amount,
@@ -559,7 +603,7 @@ class GoalService:
             monthly_contribution=effective_monthly_contribution,
             emergency_months_kept=emergency_target_months,
             allows_credit=False,
-            has_loan_options=False,
+            max_credit_coverage=0.0,
         )
 
         safe_saving_offers = await self.market_offer_service.get_safe_saving_offers(data.target_months)
@@ -574,6 +618,12 @@ class GoalService:
         loan_options = []
         loan_product_family = None
         loan_market_scope: list[str] = []
+        credit_monthly_payment_cap = None
+        credit_dti_limit_percent = None
+        credit_affordable_amount = 0.0
+        remaining_gap_after_affordable_credit = None
+        credit_fully_covers_gap = False
+        credit_affordability_note = None
         credit_max_age_years = None
         credit_max_term_months = None
         credit_age_rule_note = None
@@ -583,6 +633,17 @@ class GoalService:
                 base_scenario.funding_gap,
                 data.target_months,
                 requested_credit_amount=base_scenario.funding_gap,
+            )
+            (
+                credit_monthly_payment_cap,
+                credit_dti_limit_percent,
+                _disposable_income,
+                credit_affordability_note,
+            ) = self._build_credit_affordability_note(
+                profile.monthly_income,
+                profile.monthly_expenses,
+                "RON",
+                locale,
             )
             credit_max_age_years, credit_max_term_months, credit_age_rule_note = (
                 self._build_credit_age_rule_note(
@@ -603,6 +664,20 @@ class GoalService:
                 base_scenario.funding_gap,
                 credit_max_term_months,
             )
+            loan_options = self.market_offer_service.adapt_loan_offers_for_affordability(
+                loan_options,
+                base_scenario.funding_gap,
+                credit_monthly_payment_cap,
+            )
+            credit_affordable_amount = max(
+                (offer.affordable_amount or 0.0 for offer in loan_options),
+                default=0.0,
+            )
+            remaining_gap_after_affordable_credit = max(
+                0.0,
+                base_scenario.funding_gap - credit_affordable_amount,
+            )
+            credit_fully_covers_gap = credit_affordable_amount + 0.01 >= base_scenario.funding_gap
 
         base_scenario = self._compute_scenario(
             monthly_expenses=profile.monthly_expenses,
@@ -613,7 +688,7 @@ class GoalService:
             monthly_contribution=effective_monthly_contribution,
             emergency_months_kept=emergency_target_months,
             allows_credit=data.allow_credit_gap,
-            has_loan_options=bool(loan_options),
+            max_credit_coverage=credit_affordable_amount,
         )
 
         achievement = self._build_achievement(
@@ -648,6 +723,7 @@ class GoalService:
             safe_saving_offers=safe_saving_offers,
             investment_options=investment_options,
             loan_options=loan_options,
+            max_credit_coverage=credit_affordable_amount,
             allow_credit_gap=data.allow_credit_gap,
             emergency_target_months=emergency_target_months,
             locale=locale,
@@ -664,6 +740,10 @@ class GoalService:
             base_scenario.feasible_without_credit,
             profile.risk_profile,
             loan_product_family,
+            credit_monthly_payment_cap,
+            credit_affordable_amount,
+            remaining_gap_after_affordable_credit,
+            credit_fully_covers_gap,
             locale,
         )
         next_actions = self._build_next_actions(
@@ -676,6 +756,11 @@ class GoalService:
             base_scenario.feasible_without_credit,
             profile.risk_profile,
             loan_product_family,
+            credit_monthly_payment_cap,
+            credit_affordable_amount,
+            remaining_gap_after_affordable_credit,
+            credit_fully_covers_gap,
+            credit_affordability_note,
             credit_age_rule_note,
             locale,
         )
@@ -703,6 +788,14 @@ class GoalService:
             simulator_extra_monthly_savings=round(extra_monthly_savings, 2),
             simulator_max_extra_monthly_savings=round(simulator_max, 2),
             simulator_step=100.0,
+            credit_monthly_payment_cap=round(credit_monthly_payment_cap, 2) if credit_monthly_payment_cap is not None else None,
+            credit_dti_limit_percent=credit_dti_limit_percent,
+            credit_affordable_amount=round(credit_affordable_amount, 2) if credit_affordable_amount else None,
+            remaining_gap_after_affordable_credit=round(remaining_gap_after_affordable_credit, 2)
+            if remaining_gap_after_affordable_credit is not None
+            else None,
+            credit_fully_covers_gap=credit_fully_covers_gap,
+            credit_affordability_note=credit_affordability_note,
             credit_max_age_years=credit_max_age_years,
             credit_max_term_months=credit_max_term_months,
             credit_age_rule_note=credit_age_rule_note,
@@ -832,6 +925,9 @@ class GoalService:
                 else f"Iti mai lipsesc aproximativ {plan.funding_gap:.0f} lei. Daca vrei sa mergi totusi mai departe, poti combina economisirea cu un credit pentru diferenta."
             )
 
+        if plan.credit_affordability_note:
+            lines.append(plan.credit_affordability_note)
+
         if plan.loan_options:
             best_loan = plan.loan_options[0]
             lines.append(
@@ -841,12 +937,24 @@ class GoalService:
                     else f'Am verificat ofertele publice curente de tip {plan.loan_product_family_label.lower()} in top {len(plan.loan_market_scope)} banci mari din Romania relevante pentru acest caz si am gasit {len(plan.loan_options)} oferte comparabile.'
                 )
             )
-            if best_loan.dae_percent is not None and best_loan.indicative_monthly_payment is not None:
+            if (
+                best_loan.dae_percent is not None
+                and best_loan.affordable_monthly_payment is not None
+                and best_loan.affordable_amount is not None
+            ):
                 lines.append(
                     (
-                        f"The strongest public option right now looks like {best_loan.product_name} from {best_loan.provider}, with APR around {best_loan.dae_percent:.2f}% and an estimated payment of {best_loan.indicative_monthly_payment:.0f} RON/month."
+                        (
+                            f"The strongest realistic public option right now looks like {best_loan.product_name} from {best_loan.provider}: APR around {best_loan.dae_percent:.2f}%, payment near {best_loan.affordable_monthly_payment:.0f} RON/month, and financing capacity of about {best_loan.affordable_amount:.0f} RON."
+                            if best_loan.covers_full_request
+                            else f"The strongest realistic public option right now looks like {best_loan.product_name} from {best_loan.provider}: APR around {best_loan.dae_percent:.2f}%, payment near {best_loan.affordable_monthly_payment:.0f} RON/month, but it would cover only about {best_loan.affordable_amount:.0f} RON and still leave about {best_loan.uncovered_gap_after_offer or 0.0:.0f} RON uncovered."
+                        )
                         if english
-                        else f"Cea mai buna optiune publica acum pare {best_loan.product_name} de la {best_loan.provider}, cu DAE de aproximativ {best_loan.dae_percent:.2f}% si o rata estimata de {best_loan.indicative_monthly_payment:.0f} lei/luna."
+                        else (
+                            f"Cea mai buna optiune publica realista acum pare {best_loan.product_name} de la {best_loan.provider}: DAE de aproximativ {best_loan.dae_percent:.2f}%, rata in jur de {best_loan.affordable_monthly_payment:.0f} lei/luna si capacitate de finantare de aproximativ {best_loan.affordable_amount:.0f} lei."
+                            if best_loan.covers_full_request
+                            else f"Cea mai buna optiune publica realista acum pare {best_loan.product_name} de la {best_loan.provider}: DAE de aproximativ {best_loan.dae_percent:.2f}%, rata in jur de {best_loan.affordable_monthly_payment:.0f} lei/luna, dar ar acoperi doar aproximativ {best_loan.affordable_amount:.0f} lei si ar mai lasa descoperiti cam {best_loan.uncovered_gap_after_offer or 0.0:.0f} lei."
+                        )
                     )
                 )
 
@@ -894,6 +1002,10 @@ class GoalService:
         feasible_without_credit: bool,
         risk_profile: str,
         loan_product_family: str | None,
+        credit_monthly_payment_cap: float | None,
+        credit_affordable_amount: float | None,
+        remaining_gap_after_affordable_credit: float | None,
+        credit_fully_covers_gap: bool,
         locale: str = "ro",
     ) -> str:
         english = is_english(locale)
@@ -922,26 +1034,28 @@ class GoalService:
                 if english
                 else f"Cu un efort lunar de aproximativ {monthly_capacity:.0f} lei si {available_now:.0f} lei disponibili acum, poti ajunge la aproximativ {projected:.0f} lei pana la termen, deci obiectivul de {target_amount:.0f} lei pare fezabil fara credit."
             )
+        elif not credit_monthly_payment_cap or credit_monthly_payment_cap <= 0:
+            ending = (
+                f"At your current pace you could reach around {projected:.0f} RON, leaving a gap of {funding_gap:.0f} RON. Right now I do not treat a new loan as realistic for this profile, so the healthier route is to extend the timeline, lower the target, or increase saving capacity."
+                if english
+                else f"Cu ritmul tau actual poti ajunge la aproximativ {projected:.0f} lei, ceea ce lasa un deficit de {funding_gap:.0f} lei. In acest moment nu tratez un credit nou ca fiind realist pentru acest profil, asa ca ruta mai sanatoasa este sa extinzi termenul, sa reduci tinta sau sa cresti capacitatea de economisire."
+            )
+        elif credit_fully_covers_gap:
+            ending = (
+                (
+                    f"At your current pace you could reach around {projected:.0f} RON, leaving a gap of {funding_gap:.0f} RON. That gap can still be matched with financing while keeping the estimated monthly payment within about {credit_monthly_payment_cap:.0f} RON."
+                    if loan_product_family in {"mortgage", "secured_personal_loan", "personal_unsecured_loan"}
+                    else f"At your current pace you could reach around {projected:.0f} RON, leaving a gap of {funding_gap:.0f} RON. That gap can still be matched with financing while keeping the estimated monthly payment within about {credit_monthly_payment_cap:.0f} RON."
+                )
+                if english
+                else f"Cu ritmul tau actual poti ajunge la aproximativ {projected:.0f} lei, ceea ce lasa un deficit de {funding_gap:.0f} lei. Diferenta poate fi totusi finantata fara sa depasesti o rata estimata de aproximativ {credit_monthly_payment_cap:.0f} lei/luna."
+            )
         else:
             ending = (
                 (
-                    f"At your current pace you could reach around {projected:.0f} RON, leaving a gap of {funding_gap:.0f} RON. That means the strategy is either to extend the timeline, increase saving, or cover the difference with a mortgage."
-                    if loan_product_family == "mortgage"
-                    else (
-                        f"At your current pace you could reach around {projected:.0f} RON, leaving a gap of {funding_gap:.0f} RON. That means the strategy is either to extend the timeline, increase saving, or cover the difference with a secured personal loan."
-                        if loan_product_family == "secured_personal_loan"
-                        else f"At your current pace you could reach around {projected:.0f} RON, leaving a gap of {funding_gap:.0f} RON. That means the strategy is either to extend the timeline, increase saving, or finance the difference externally."
-                    )
-                )
-                if english
-                else (
-                    f"Cu ritmul tau actual poti ajunge la aproximativ {projected:.0f} lei, ceea ce lasa un deficit de {funding_gap:.0f} lei. De aceea, strategia poate fi fie amanarea termenului, fie cresterea economisirii, fie acoperirea diferentei prin credit ipotecar/imobiliar."
-                    if loan_product_family == "mortgage"
-                    else (
-                        f"Cu ritmul tau actual poti ajunge la aproximativ {projected:.0f} lei, ceea ce lasa un deficit de {funding_gap:.0f} lei. De aceea, strategia poate fi fie amanarea termenului, fie cresterea economisirii, fie acoperirea diferentei prin credit de nevoi personale cu ipoteca."
-                        if loan_product_family == "secured_personal_loan"
-                        else f"Cu ritmul tau actual poti ajunge la aproximativ {projected:.0f} lei, ceea ce lasa un deficit de {funding_gap:.0f} lei. De aceea, strategia poate fi fie amanarea termenului, fie cresterea economisirii, fie acoperirea diferentei prin finantare externa."
-                    )
+                    f"At your current pace you could reach around {projected:.0f} RON, leaving a gap of {funding_gap:.0f} RON. Based on your budget, a realistic loan payment is closer to {credit_monthly_payment_cap:.0f} RON/month, which would support only about {credit_affordable_amount or 0.0:.0f} RON of financing and still leave about {remaining_gap_after_affordable_credit or funding_gap:.0f} RON uncovered."
+                    if english
+                    else f"Cu ritmul tau actual poti ajunge la aproximativ {projected:.0f} lei, ceea ce lasa un deficit de {funding_gap:.0f} lei. Pe bugetul tau, o rata realista este mai aproape de {credit_monthly_payment_cap:.0f} lei/luna, ceea ce ar sustine doar aproximativ {credit_affordable_amount or 0.0:.0f} lei de finantare si ar mai lasa descoperiti cam {remaining_gap_after_affordable_credit or funding_gap:.0f} lei."
                 )
             )
         return f"{base} {ending}"
@@ -957,6 +1071,11 @@ class GoalService:
         feasible_without_credit: bool,
         risk_profile: str,
         loan_product_family: str | None,
+        credit_monthly_payment_cap: float | None,
+        credit_affordable_amount: float | None,
+        remaining_gap_after_affordable_credit: float | None,
+        credit_fully_covers_gap: bool,
+        credit_affordability_note: str | None,
         credit_age_rule_note: str | None,
         locale: str = "ro",
     ) -> list[str]:
@@ -1005,27 +1124,32 @@ class GoalService:
             )
 
         if not feasible_without_credit and funding_gap > 0:
-            actions.append(
-                (
-                    f"If you want to keep the current deadline, compare mortgage offers for the remaining amount of about {funding_gap:.0f} RON instead of forcing a personal loan."
-                    if loan_product_family == "mortgage"
-                    else (
-                        f"If you want to keep the current deadline, compare secured personal loans with property collateral for the remaining amount of about {funding_gap:.0f} RON."
-                        if loan_product_family == "secured_personal_loan"
-                        else f"If you want to keep the current deadline, compare financing only for the remaining gap of about {funding_gap:.0f} RON."
+            if credit_fully_covers_gap and credit_monthly_payment_cap:
+                actions.append(
+                    (
+                        f"If you want to keep the current deadline, compare financing for the remaining gap of about {funding_gap:.0f} RON, but keep the monthly payment around or below {credit_monthly_payment_cap:.0f} RON."
+                        if english
+                        else f"Daca vrei sa mentii termenul actual, compara finantare pentru diferenta de aproximativ {funding_gap:.0f} lei, dar pastreaza rata in jurul sau sub {credit_monthly_payment_cap:.0f} lei/luna."
                     )
                 )
-                if english
-                else (
-                    f"Daca vrei sa mentii termenul actual, compara credite ipotecare/imobiliare pentru suma ramasa de aproximativ {funding_gap:.0f} lei, nu forta un credit de nevoi personale."
-                    if loan_product_family == "mortgage"
-                    else (
-                        f"Daca vrei sa mentii termenul actual, compara credite de nevoi personale cu ipoteca pentru suma ramasa de aproximativ {funding_gap:.0f} lei."
-                        if loan_product_family == "secured_personal_loan"
-                        else f"Daca vrei sa mentii termenul actual, compara un credit doar pentru diferenta de aproximativ {funding_gap:.0f} lei."
+            elif (credit_affordable_amount or 0.0) > 0 and credit_monthly_payment_cap:
+                actions.append(
+                    (
+                        f"Do not plan the full gap as credit: at this budget, financing looks realistic only up to about {credit_affordable_amount:.0f} RON with a payment near {credit_monthly_payment_cap:.0f} RON/month, so the rest should come from more saving or a longer timeline."
+                        if english
+                        else f"Nu planifica tot gap-ul prin credit: la bugetul actual, finantarea pare realista doar pana la aproximativ {credit_affordable_amount:.0f} lei cu o rata in jur de {credit_monthly_payment_cap:.0f} lei/luna, iar restul ar trebui acoperit prin economisire mai mare sau termen mai lung."
                     )
                 )
-            )
+            else:
+                actions.append(
+                    (
+                        "Do not force a new loan yet; first improve free cash flow, extend the timeline, or reduce the target."
+                        if english
+                        else "Nu forta inca un credit nou; mai intai imbunatateste cashflow-ul liber, extinde termenul sau redu tinta."
+                    )
+                )
+        if credit_affordability_note:
+            actions.append(credit_affordability_note)
         if credit_age_rule_note:
             actions.append(credit_age_rule_note)
         return actions

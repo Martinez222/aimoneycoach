@@ -32,6 +32,12 @@ class MarketOfferResponse(BaseModel):
     bank_rank: int | None = None
     maximum_amount: float | None = None
     requires_property_collateral: bool | None = None
+    requested_amount: float | None = None
+    affordable_amount: float | None = None
+    monthly_payment_cap: float | None = None
+    affordable_monthly_payment: float | None = None
+    uncovered_gap_after_offer: float | None = None
+    covers_full_request: bool | None = None
     annual_cost_percent: float | None = None
     transaction_cost_percent: float | None = None
     fx_conversion_cost_percent: float | None = None
@@ -98,6 +104,12 @@ class GoalPlanResponse(BaseModel):
     simulator_extra_monthly_savings: float
     simulator_max_extra_monthly_savings: float
     simulator_step: float
+    credit_monthly_payment_cap: float | None = None
+    credit_dti_limit_percent: float | None = None
+    credit_affordable_amount: float | None = None
+    remaining_gap_after_affordable_credit: float | None = None
+    credit_fully_covers_gap: bool = False
+    credit_affordability_note: str | None = None
     credit_max_age_years: int | None = None
     credit_max_term_months: int | None = None
     credit_age_rule_note: str | None = None

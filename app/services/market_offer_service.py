@@ -191,6 +191,20 @@ class MarketOfferService:
         denominator = 1 - math.pow(1 + monthly_rate, -months)
         return numerator / denominator
 
+    def _reverse_annuity_principal(
+        self,
+        monthly_payment: float,
+        annual_rate_percent: float,
+        months: int,
+    ) -> float:
+        if monthly_payment <= 0 or months <= 0:
+            return 0.0
+        monthly_rate = math.pow(1 + annual_rate_percent / 100, 1 / 12) - 1
+        if monthly_rate <= 0:
+            return monthly_payment * months
+        factor = (1 - math.pow(1 + monthly_rate, -months)) / monthly_rate
+        return monthly_payment * factor
+
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
 
@@ -215,6 +229,12 @@ class MarketOfferService:
         offer_type: str | None = None,
         maximum_amount: float | None = None,
         requires_property_collateral: bool | None = None,
+        requested_amount: float | None = None,
+        affordable_amount: float | None = None,
+        monthly_payment_cap: float | None = None,
+        affordable_monthly_payment: float | None = None,
+        uncovered_gap_after_offer: float | None = None,
+        covers_full_request: bool | None = None,
         annual_cost_percent: float | None = None,
         transaction_cost_percent: float | None = None,
         fx_conversion_cost_percent: float | None = None,
@@ -244,6 +264,12 @@ class MarketOfferService:
             bank_rank=BANK_RANKS.get(provider),
             maximum_amount=maximum_amount,
             requires_property_collateral=requires_property_collateral,
+            requested_amount=requested_amount,
+            affordable_amount=affordable_amount,
+            monthly_payment_cap=monthly_payment_cap,
+            affordable_monthly_payment=affordable_monthly_payment,
+            uncovered_gap_after_offer=uncovered_gap_after_offer,
+            covers_full_request=covers_full_request,
             annual_cost_percent=annual_cost_percent,
             transaction_cost_percent=transaction_cost_percent,
             fx_conversion_cost_percent=fx_conversion_cost_percent,
@@ -324,15 +350,27 @@ class MarketOfferService:
             if effective_term < MIN_LOAN_TERM_MONTHS:
                 continue
 
-            if offer.dae_percent is not None and effective_term != offer.term_months:
+            effective_requested_amount = min(
+                requested_amount,
+                offer.maximum_amount if offer.maximum_amount is not None else requested_amount,
+            )
+            if effective_requested_amount <= 0:
+                continue
+
+            if offer.dae_percent is not None and (
+                effective_term != offer.term_months
+                or effective_requested_amount != requested_amount
+                or offer.requested_amount is None
+            ):
                 recalculated_payment = self._build_annuity_payment(
-                    requested_amount,
+                    effective_requested_amount,
                     offer.dae_percent,
                     effective_term,
                 )
                 adjusted_offers.append(
                     offer.model_copy(
                         update={
+                            "requested_amount": round(effective_requested_amount, 2),
                             "term_months": effective_term,
                             "indicative_monthly_payment": round(recalculated_payment, 2),
                             "indicative_total_value": round(recalculated_payment * effective_term, 2),
@@ -345,14 +383,86 @@ class MarketOfferService:
                 adjusted_offers.append(
                     offer.model_copy(
                         update={
+                            "requested_amount": round(effective_requested_amount, 2),
                             "term_months": effective_term,
                         }
                     )
                 )
                 continue
 
-            adjusted_offers.append(offer)
+            adjusted_offers.append(
+                offer.model_copy(
+                    update={
+                        "requested_amount": round(effective_requested_amount, 2),
+                    }
+                )
+            )
 
+        return adjusted_offers
+
+    def adapt_loan_offers_for_affordability(
+        self,
+        offers: list[MarketOfferResponse],
+        requested_amount: float,
+        monthly_payment_cap: float | None,
+    ) -> list[MarketOfferResponse]:
+        if monthly_payment_cap is None or monthly_payment_cap <= 0:
+            return []
+
+        adjusted_offers: list[MarketOfferResponse] = []
+        for offer in offers:
+            if offer.dae_percent is None or not offer.term_months:
+                continue
+
+            effective_requested_amount = offer.requested_amount or min(
+                requested_amount,
+                offer.maximum_amount if offer.maximum_amount is not None else requested_amount,
+            )
+            effective_requested_amount = max(0.0, effective_requested_amount)
+            if effective_requested_amount <= 0:
+                continue
+
+            max_affordable_amount = self._reverse_annuity_principal(
+                monthly_payment_cap,
+                offer.dae_percent,
+                offer.term_months,
+            )
+            if offer.maximum_amount is not None:
+                max_affordable_amount = min(max_affordable_amount, offer.maximum_amount)
+
+            affordable_amount = max(0.0, min(effective_requested_amount, max_affordable_amount))
+            if affordable_amount <= 0:
+                continue
+
+            affordable_payment = self._build_annuity_payment(
+                affordable_amount,
+                offer.dae_percent,
+                offer.term_months,
+            )
+            uncovered_gap = max(0.0, requested_amount - affordable_amount)
+            covers_full_request = affordable_amount + 0.01 >= requested_amount
+
+            adjusted_offers.append(
+                offer.model_copy(
+                    update={
+                        "requested_amount": round(effective_requested_amount, 2),
+                        "affordable_amount": round(affordable_amount, 2),
+                        "monthly_payment_cap": round(monthly_payment_cap, 2),
+                        "affordable_monthly_payment": round(affordable_payment, 2),
+                        "uncovered_gap_after_offer": round(uncovered_gap, 2),
+                        "covers_full_request": covers_full_request,
+                    }
+                )
+            )
+
+        adjusted_offers.sort(
+            key=lambda item: (
+                0 if item.covers_full_request else 1,
+                -(item.affordable_amount or 0.0),
+                item.dae_percent or 999.0,
+                item.bank_rank or 999,
+            )
+        )
         return adjusted_offers
 
     async def get_fx_rate(self, currency: str) -> float:
@@ -523,15 +633,14 @@ class MarketOfferService:
         else:
             offers = await self._get_unsecured_personal_loan_offers(gap_amount)
 
-        filtered = [offer for offer in offers if offer.maximum_amount is None or gap_amount <= offer.maximum_amount]
-        filtered.sort(
+        offers.sort(
             key=lambda item: (
                 item.dae_percent or 999.0,
                 item.bank_rank or 999,
                 -(item.maximum_amount or 0.0),
             )
         )
-        return filtered[: len(self.get_top_bank_scope(offer_type))]
+        return offers[: len(self.get_top_bank_scope(offer_type))]
 
     async def _get_unsecured_personal_loan_offers(self, requested_amount: float) -> list[MarketOfferResponse]:
         builders = [
