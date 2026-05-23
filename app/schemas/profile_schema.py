@@ -6,6 +6,8 @@ from datetime import datetime
 class ProfileCreate(BaseModel):
     monthly_income: float = Field(gt=0, description="Venitul lunar brut")
     monthly_expenses: float = Field(gt=0, description="Cheltuielile lunare totale")
+    age: int | None = Field(default=None, ge=18, le=80)
+    credit_gender: str | None = Field(default=None, pattern="^(male|female)$")
     emergency_fund: float = Field(default=0.0, ge=0)
     savings: float = Field(default=0.0, ge=0)
     debts: float = Field(default=0.0, ge=0)
@@ -18,6 +20,8 @@ class ProfileResponse(BaseModel):
     user_id: int
     monthly_income: float
     monthly_expenses: float
+    age: int | None = None
+    credit_gender: str | None = None
     emergency_fund: float
     savings: float
     debts: float

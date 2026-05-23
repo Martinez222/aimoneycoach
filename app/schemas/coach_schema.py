@@ -15,6 +15,8 @@ class EmergencyFundResponse(BaseModel):
 class FinancialSnapshotResponse(BaseModel):
     monthly_income: float
     monthly_expenses: float
+    age: int | None = None
+    credit_gender: str | None = None
     monthly_savings_capacity: float
     emergency_fund_amount: float
     savings: float

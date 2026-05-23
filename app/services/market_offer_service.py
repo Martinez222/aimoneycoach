@@ -65,6 +65,12 @@ MORTGAGE_BANK_SCOPE = [
 ]
 
 BANK_RANKS = {bank_name: index + 1 for index, bank_name in enumerate(TOP_10_BANKS)}
+UNSECURED_PERSONAL_MARKET_LIMIT_RON = 200000.0
+CREDIT_MATURITY_AGE_BY_GENDER = {
+    "male": 70,
+    "female": 65,
+}
+MIN_LOAN_TERM_MONTHS = 12
 
 
 @dataclass(frozen=True)
@@ -255,8 +261,15 @@ class MarketOfferService:
             return list(MORTGAGE_BANK_SCOPE)
         return list(PERSONAL_UNSECURED_BANK_SCOPE)
 
-    def determine_loan_offer_type(self, goal_name: str, gap_amount: float, target_months: int) -> str:
-        normalized_goal = self._ascii_fold(goal_name.lower())
+    def determine_loan_offer_type(
+        self,
+        goal_name: str,
+        gap_amount: float,
+        target_months: int,
+        requested_credit_amount: float | None = None,
+    ) -> str:
+        normalized_goal = self._ascii_fold((goal_name or "").lower())
+        credit_need = max(gap_amount, requested_credit_amount or 0.0)
         housing_keywords = (
             "casa",
             "apartament",
@@ -274,9 +287,73 @@ class MarketOfferService:
         )
         if any(keyword in normalized_goal for keyword in housing_keywords):
             return "mortgage"
-        if gap_amount > 250000 or target_months > 60:
+        if credit_need > UNSECURED_PERSONAL_MARKET_LIMIT_RON or target_months > 60:
             return "secured_personal_loan"
         return "personal_unsecured_loan"
+
+    def get_credit_maturity_age(self, offer_type: str, credit_gender: str | None = None) -> int:
+        normalized_gender = (credit_gender or "").lower()
+        return CREDIT_MATURITY_AGE_BY_GENDER.get(normalized_gender, 65)
+
+    def get_credit_term_cap_months(
+        self,
+        offer_type: str,
+        age: int | None,
+        credit_gender: str | None = None,
+    ) -> int | None:
+        if age is None:
+            return None
+        maturity_age = self.get_credit_maturity_age(offer_type, credit_gender)
+        return max(0, (maturity_age - age) * 12)
+
+    def adapt_loan_offers_for_term_cap(
+        self,
+        offers: list[MarketOfferResponse],
+        requested_amount: float,
+        max_term_months: int | None,
+    ) -> list[MarketOfferResponse]:
+        if max_term_months is None:
+            return offers
+        if max_term_months < MIN_LOAN_TERM_MONTHS:
+            return []
+
+        adjusted_offers: list[MarketOfferResponse] = []
+        for offer in offers:
+            reference_term = offer.term_months or max_term_months
+            effective_term = min(reference_term, max_term_months)
+            if effective_term < MIN_LOAN_TERM_MONTHS:
+                continue
+
+            if offer.dae_percent is not None and effective_term != offer.term_months:
+                recalculated_payment = self._build_annuity_payment(
+                    requested_amount,
+                    offer.dae_percent,
+                    effective_term,
+                )
+                adjusted_offers.append(
+                    offer.model_copy(
+                        update={
+                            "term_months": effective_term,
+                            "indicative_monthly_payment": round(recalculated_payment, 2),
+                            "indicative_total_value": round(recalculated_payment * effective_term, 2),
+                        }
+                    )
+                )
+                continue
+
+            if effective_term != offer.term_months:
+                adjusted_offers.append(
+                    offer.model_copy(
+                        update={
+                            "term_months": effective_term,
+                        }
+                    )
+                )
+                continue
+
+            adjusted_offers.append(offer)
+
+        return adjusted_offers
 
     async def get_fx_rate(self, currency: str) -> float:
         normalized = currency.upper()

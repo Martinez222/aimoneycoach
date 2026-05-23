@@ -9,6 +9,8 @@ class FinancialProfile(Base):
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     monthly_income = Column(Float, nullable=False)
     monthly_expenses = Column(Float, nullable=False)
+    age = Column(Integer, nullable=True)
+    credit_gender = Column(String, nullable=True)  # male / female
     emergency_fund = Column(Float, default=0.0, nullable=False)
     savings = Column(Float, default=0.0)
     debts = Column(Float, default=0.0)

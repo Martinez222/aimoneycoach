@@ -55,6 +55,14 @@ def _ensure_financial_profile_columns(sync_conn) -> None:
         return
 
     columns = {column["name"] for column in inspector.get_columns("financial_profiles")}
+    if "age" not in columns:
+        sync_conn.exec_driver_sql(
+            "ALTER TABLE financial_profiles ADD COLUMN age INTEGER"
+        )
+    if "credit_gender" not in columns:
+        sync_conn.exec_driver_sql(
+            "ALTER TABLE financial_profiles ADD COLUMN credit_gender VARCHAR(16)"
+        )
     if "emergency_fund" not in columns:
         sync_conn.exec_driver_sql(
             "ALTER TABLE financial_profiles ADD COLUMN emergency_fund FLOAT NOT NULL DEFAULT 0.0"

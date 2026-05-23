@@ -177,6 +177,19 @@
             </label>
 
             <label class="field">
+              <span data-i18n="profile.age">Varsta</span>
+              <input name="age" type="number" min="18" max="80" step="1" placeholder="35" required>
+            </label>
+
+            <label class="field">
+              <span data-i18n="profile.creditGender">Sex pentru eligibilitate credit</span>
+              <select name="credit_gender" required>
+                <option value="male" data-i18n="profile.genderMale" selected>Barbat</option>
+                <option value="female" data-i18n="profile.genderFemale">Femeie</option>
+              </select>
+            </label>
+
+            <label class="field">
               <span data-i18n="profile.savings">Economii pentru obiective</span>
               <input name="savings" type="number" min="0" step="0.01" placeholder="18000" required>
             </label>
@@ -235,6 +248,14 @@
               <label class="field">
                 <span data-i18n="goal.amount">Suma dorita</span>
                 <input name="target_amount" type="number" min="1" step="0.01" placeholder="9000" required>
+              </label>
+
+              <label class="field">
+                <span data-i18n="goal.currency">Moneda</span>
+                <select name="target_currency">
+                  <option value="RON" selected>RON</option>
+                  <option value="EUR">EUR</option>
+                </select>
               </label>
 
               <label class="field">
@@ -366,6 +387,7 @@
               </div>
               <p id="loanMarketSummary" class="market-summary"></p>
               <p id="loanMarketBanks" class="market-banks"></p>
+              <p id="loanMarketCreditRule" class="market-summary"></p>
             </section>
             <div class="offer-grid">
               <section class="offer-group">

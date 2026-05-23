@@ -54,6 +54,8 @@ class CoachService:
         return FinancialSnapshotResponse(
             monthly_income=profile.monthly_income,
             monthly_expenses=profile.monthly_expenses,
+            age=profile.age,
+            credit_gender=profile.credit_gender,
             monthly_savings_capacity=self.risk_service.get_monthly_savings_capacity(profile),
             emergency_fund_amount=profile.emergency_fund,
             savings=profile.savings,

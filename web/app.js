@@ -29,6 +29,10 @@ const translations = {
     "profile.hint": "Separi fondul de urgenta de economiile pentru obiective, apoi chat-ul devine personalizat.",
     "profile.income": "Venit lunar",
     "profile.expenses": "Cheltuieli lunare",
+    "profile.age": "Varsta",
+    "profile.creditGender": "Sex pentru eligibilitate credit",
+    "profile.genderMale": "Barbat",
+    "profile.genderFemale": "Femeie",
     "profile.emergencyKicker": "Buffer de siguranta",
     "profile.emergencyTitle": "Ce fond de urgenta ai acum?",
     "profile.emergencyHint": "Separat de vacante, investitii si alte obiective.",
@@ -55,6 +59,7 @@ const translations = {
     "goal.name": "Obiectiv",
     "goal.namePlaceholder": "Ex: vacanta",
     "goal.amount": "Suma dorita",
+    "goal.currency": "Moneda",
     "goal.months": "In cate luni?",
     "goal.allowCredit": "Daca lipseste ceva, cauta si variante de finantare",
     "goal.generate": "Genereaza planul",
@@ -195,6 +200,10 @@ const translations = {
     "profile.hint": "Keep your emergency fund separate from goal savings, then the chat becomes personalized.",
     "profile.income": "Monthly income",
     "profile.expenses": "Monthly expenses",
+    "profile.age": "Age",
+    "profile.creditGender": "Sex used for credit eligibility",
+    "profile.genderMale": "Male",
+    "profile.genderFemale": "Female",
     "profile.emergencyKicker": "Safety buffer",
     "profile.emergencyTitle": "How much emergency fund do you have now?",
     "profile.emergencyHint": "Separate from vacations, investing, and other goals.",
@@ -221,6 +230,7 @@ const translations = {
     "goal.name": "Goal",
     "goal.namePlaceholder": "Ex: vacation",
     "goal.amount": "Target amount",
+    "goal.currency": "Currency",
     "goal.months": "In how many months?",
     "goal.allowCredit": "If there is a gap, also search financing options",
     "goal.generate": "Generate plan",
@@ -512,6 +522,7 @@ function applyGoalPayloadToForm(payload) {
 
   goalForm.elements.goal_name.value = payload.goal_name || "";
   goalForm.elements.target_amount.value = payload.target_amount || "";
+  goalForm.elements.target_currency.value = payload.target_currency || "RON";
   goalForm.elements.target_months.value = payload.target_months || "";
   goalForm.elements.allow_credit_gap.checked = payload.allow_credit_gap !== false;
 }
@@ -1021,6 +1032,7 @@ function resetGoalOutputs() {
   document.getElementById("goalNextActions").innerHTML = "";
   document.getElementById("loanMarketSummary").textContent = "";
   document.getElementById("loanMarketBanks").textContent = "";
+  document.getElementById("loanMarketCreditRule").textContent = "";
   document.getElementById("loanMarketBox").classList.add("hidden");
   document.getElementById("goalSafeOffers").innerHTML = "";
   document.getElementById("goalFundOffers").innerHTML = "";
@@ -1079,6 +1091,8 @@ function renderOverview(overview) {
   if (snapshot) {
     profileForm.elements.monthly_income.value = snapshot.monthly_income;
     profileForm.elements.monthly_expenses.value = snapshot.monthly_expenses;
+    profileForm.elements.age.value = snapshot.age ?? "";
+    profileForm.elements.credit_gender.value = snapshot.credit_gender || "male";
     profileForm.elements.emergency_fund.value = snapshot.emergency_fund.current_amount;
     profileForm.elements.savings.value = snapshot.savings;
     profileForm.elements.debts.value = snapshot.debts;
@@ -1117,6 +1131,10 @@ function renderGoalPlan(plan) {
     t("goal.chipProjected", { amount: Math.round(plan.projected_savings_by_deadline) }),
     t("goal.chipEmergency", { amount: Math.round(plan.emergency_fund_to_keep) }),
   ];
+
+  if (plan.credit_age_rule_note) {
+    chips.push(plan.credit_age_rule_note);
+  }
 
   if (plan.safe_saving_offers.length) {
     const bestSafe = plan.safe_saving_offers[0];
@@ -1171,6 +1189,7 @@ function renderGoalPlan(plan) {
   const loanMarketBox = document.getElementById("loanMarketBox");
   const loanMarketSummary = document.getElementById("loanMarketSummary");
   const loanMarketBanks = document.getElementById("loanMarketBanks");
+  const loanMarketCreditRule = document.getElementById("loanMarketCreditRule");
   if (plan.loan_market_scope?.length) {
     loanMarketBox.classList.remove("hidden");
     loanMarketSummary.textContent = t("goal.marketSummary", {
@@ -1181,9 +1200,11 @@ function renderGoalPlan(plan) {
     loanMarketBanks.textContent = t("goal.marketBanks", {
       banks: plan.loan_market_scope.join(", "),
     });
+    loanMarketCreditRule.textContent = plan.credit_age_rule_note || "";
   } else {
     loanMarketSummary.textContent = "";
     loanMarketBanks.textContent = "";
+    loanMarketCreditRule.textContent = "";
     loanMarketBox.classList.add("hidden");
   }
 
@@ -1413,6 +1434,8 @@ profileForm.addEventListener("submit", async (event) => {
   const payload = {
     monthly_income: Number(profileForm.elements.monthly_income.value),
     monthly_expenses: Number(profileForm.elements.monthly_expenses.value),
+    age: profileForm.elements.age.value ? Number(profileForm.elements.age.value) : null,
+    credit_gender: profileForm.elements.credit_gender.value || null,
     emergency_fund: Number(profileForm.elements.emergency_fund.value || 0),
     savings: Number(profileForm.elements.savings.value || 0),
     debts: Number(profileForm.elements.debts.value || 0),
@@ -1439,6 +1462,7 @@ goalForm.addEventListener("submit", async (event) => {
   const payload = {
     goal_name: goalForm.elements.goal_name.value.trim(),
     target_amount: Number(goalForm.elements.target_amount.value),
+    target_currency: goalForm.elements.target_currency.value || "RON",
     target_months: Number(goalForm.elements.target_months.value),
     allow_credit_gap: goalForm.elements.allow_credit_gap.checked,
     extra_monthly_savings: Number(goalSimulatorRange.value || 0),

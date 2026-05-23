@@ -65,6 +65,72 @@ class GoalService:
         }
         return mapping.get(loan_family)
 
+    def _format_term_note(self, months: int, locale: str = "ro") -> str:
+        english = is_english(locale)
+        if months <= 0:
+            return "0 months" if english else "0 luni"
+        if months % 12 == 0:
+            years = months // 12
+            return f"{years} year" if english and years == 1 else (
+                f"{years} years" if english else f"{years} {'an' if years == 1 else 'ani'}"
+            )
+        years = months // 12
+        extra_months = months % 12
+        if english:
+            year_label = "year" if years == 1 else "years"
+            month_label = "month" if extra_months == 1 else "months"
+            if years == 0:
+                return f"{extra_months} {month_label}"
+            return f"{years} {year_label} and {extra_months} {month_label}"
+        if years == 0:
+            return f"{extra_months} {'luna' if extra_months == 1 else 'luni'}"
+        return (
+            f"{years} {'an' if years == 1 else 'ani'} si "
+            f"{extra_months} {'luna' if extra_months == 1 else 'luni'}"
+        )
+
+    def _build_credit_age_rule_note(
+        self,
+        loan_family: str | None,
+        age: int | None,
+        credit_gender: str | None,
+        locale: str = "ro",
+    ) -> tuple[int | None, int | None, str | None]:
+        if not loan_family or age is None:
+            return None, None, None
+
+        english = is_english(locale)
+        maturity_age = self.market_offer_service.get_credit_maturity_age(loan_family, credit_gender)
+        term_cap_months = self.market_offer_service.get_credit_term_cap_months(
+            loan_family,
+            age,
+            credit_gender,
+        )
+        if term_cap_months is None:
+            return maturity_age, None, None
+
+        term_label = self._format_term_note(term_cap_months, locale)
+        if loan_family == "mortgage":
+            gender_label = "male" if credit_gender == "male" else "female"
+            note = (
+                f"For mortgage planning, I now apply a hard maturity cap of {maturity_age} years for a {gender_label} borrower; at your age, that means about {term_label} maximum financing term."
+                if english
+                else f"Pentru mortgage, aplic acum plafonul fix de scadenta finala la {maturity_age} ani pentru profilul {'barbat' if credit_gender == 'male' else 'femeie'}; la varsta ta, asta inseamna aproximativ {term_label} termen maxim de finantare."
+            )
+        elif loan_family == "secured_personal_loan":
+            note = (
+                f"For secured personal loans, I now apply a hard maturity cap of {maturity_age} years; at your age, that leaves roughly {term_label} maximum term."
+                if english
+                else f"Pentru creditele de nevoi personale cu ipoteca, aplic acum plafonul fix de scadenta finala la {maturity_age} ani; la varsta ta, asta lasa cam {term_label} termen maxim."
+            )
+        else:
+            note = (
+                f"For unsecured personal loans, I now apply a hard maturity cap of {maturity_age} years; at your age, that leaves roughly {term_label} maximum term."
+                if english
+                else f"Pentru creditele de nevoi personale fara ipoteca, aplic acum plafonul fix de scadenta finala la {maturity_age} ani; la varsta ta, asta lasa cam {term_label} termen maxim."
+            )
+        return maturity_age, term_cap_months, note
+
     def _parse_amount(self, raw_amount: str) -> float:
         cleaned = raw_amount.strip().replace(" ", "")
         if "," in cleaned and "." in cleaned:
@@ -508,17 +574,34 @@ class GoalService:
         loan_options = []
         loan_product_family = None
         loan_market_scope: list[str] = []
+        credit_max_age_years = None
+        credit_max_term_months = None
+        credit_age_rule_note = None
         if data.allow_credit_gap and base_scenario.funding_gap > 0:
             loan_product_family = self.market_offer_service.determine_loan_offer_type(
                 data.goal_name,
                 base_scenario.funding_gap,
                 data.target_months,
+                requested_credit_amount=base_scenario.funding_gap,
+            )
+            credit_max_age_years, credit_max_term_months, credit_age_rule_note = (
+                self._build_credit_age_rule_note(
+                    loan_product_family,
+                    profile.age,
+                    profile.credit_gender,
+                    locale,
+                )
             )
             loan_market_scope = self.market_offer_service.get_top_bank_scope(loan_product_family)
             loan_options = await self.market_offer_service.get_loan_offers(
                 base_scenario.funding_gap,
                 data.target_months,
                 data.goal_name,
+            )
+            loan_options = self.market_offer_service.adapt_loan_offers_for_term_cap(
+                loan_options,
+                base_scenario.funding_gap,
+                credit_max_term_months,
             )
 
         base_scenario = self._compute_scenario(
@@ -593,6 +676,7 @@ class GoalService:
             base_scenario.feasible_without_credit,
             profile.risk_profile,
             loan_product_family,
+            credit_age_rule_note,
             locale,
         )
 
@@ -619,6 +703,9 @@ class GoalService:
             simulator_extra_monthly_savings=round(extra_monthly_savings, 2),
             simulator_max_extra_monthly_savings=round(simulator_max, 2),
             simulator_step=100.0,
+            credit_max_age_years=credit_max_age_years,
+            credit_max_term_months=credit_max_term_months,
+            credit_age_rule_note=credit_age_rule_note,
             loan_product_family=loan_product_family,
             loan_product_family_label=self._loan_family_label(loan_product_family, locale),
             loan_market_scope=loan_market_scope,
@@ -630,6 +717,7 @@ class GoalService:
 
     def extract_goal_request(self, message: str, locale: str = "ro") -> GoalPlanRequest | None:
         lowered = message.lower()
+        normalized_message = self.market_offer_service._ascii_fold(lowered)
         goal_keywords = (
             "vacanta",
             "concediu",
@@ -660,17 +748,17 @@ class GoalService:
             "emergency",
             "goal",
         )
-        if not any(keyword in lowered for keyword in goal_keywords):
+        if not any(keyword in normalized_message for keyword in goal_keywords):
             return None
 
-        amount_match = re.search(r"([\d\s.,]+)\s*(lei|ron|eur|euro)", lowered)
+        amount_match = re.search(r"([\d\s.,]+)\s*(lei|ron|eur|euro)", normalized_message)
         if not amount_match:
             return None
         amount = self._parse_amount(amount_match.group(1))
         target_currency = "EUR" if amount_match.group(2) in {"eur", "euro"} else "RON"
 
-        months_match = re.search(r"(\d+)\s*(luni?|months?)", lowered)
-        years_match = re.search(r"(\d+)\s*(ani?|years?)", lowered)
+        months_match = re.search(r"(\d+)\s*(luni?|months?)", normalized_message)
+        years_match = re.search(r"(\d+)\s*(ani?|years?)", normalized_message)
         if months_match:
             target_months = int(months_match.group(1))
         elif years_match:
@@ -688,12 +776,12 @@ class GoalService:
             goal_name = phrase_match.group(1).strip()
         else:
             for keyword in goal_keywords:
-                if keyword in lowered:
+                if keyword in normalized_message:
                     goal_name = keyword
                     break
 
         allow_credit_gap = not any(
-            phrase in lowered
+            phrase in normalized_message
             for phrase in ("fara credit", "nu vreau credit", "without credit", "no loan", "no credit")
         )
         return GoalPlanRequest(
@@ -761,6 +849,9 @@ class GoalService:
                         else f"Cea mai buna optiune publica acum pare {best_loan.product_name} de la {best_loan.provider}, cu DAE de aproximativ {best_loan.dae_percent:.2f}% si o rata estimata de {best_loan.indicative_monthly_payment:.0f} lei/luna."
                     )
                 )
+
+        if plan.credit_age_rule_note:
+            lines.append(plan.credit_age_rule_note)
 
         best_safe = plan.safe_saving_offers[0] if plan.safe_saving_offers else None
         if best_safe and best_safe.annual_rate_percent is not None:
@@ -866,6 +957,7 @@ class GoalService:
         feasible_without_credit: bool,
         risk_profile: str,
         loan_product_family: str | None,
+        credit_age_rule_note: str | None,
         locale: str = "ro",
     ) -> list[str]:
         english = is_english(locale)
@@ -934,4 +1026,6 @@ class GoalService:
                     )
                 )
             )
+        if credit_age_rule_note:
+            actions.append(credit_age_rule_note)
         return actions

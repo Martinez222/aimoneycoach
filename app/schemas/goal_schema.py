@@ -98,6 +98,9 @@ class GoalPlanResponse(BaseModel):
     simulator_extra_monthly_savings: float
     simulator_max_extra_monthly_savings: float
     simulator_step: float
+    credit_max_age_years: int | None = None
+    credit_max_term_months: int | None = None
+    credit_age_rule_note: str | None = None
     loan_product_family: str | None = None
     loan_product_family_label: str | None = None
     loan_market_scope: list[str] = []
