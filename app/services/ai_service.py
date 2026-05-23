@@ -51,9 +51,11 @@ class AIService:
         emergency_target_months = profile_data.get("emergency_fund_target_months", 6)
         savings = profile_data.get("savings", 0.0)
         debts = profile_data.get("debts", 0.0)
+        monthly_debt_obligations = profile_data.get("monthly_debt_obligations", 0.0)
         goals = profile_data.get("financial_goals", [])
-        surplus = income - expenses
-        emergency_months = emergency_fund / expenses if expenses else 0.0
+        committed_outflow = expenses + monthly_debt_obligations
+        surplus = income - expenses - monthly_debt_obligations
+        emergency_months = emergency_fund / committed_outflow if committed_outflow else 0.0
         english = is_english(locale)
 
         strengths: list[str] = []
@@ -79,9 +81,9 @@ class AIService:
         if emergency_months >= emergency_target_months:
             strengths.append(
                 (
-                    f"you already have an emergency fund covering about {emergency_months:.1f} months of expenses"
+                    f"you already have an emergency fund covering about {emergency_months:.1f} months of essential outflow"
                     if english
-                    else f"ai deja un fond de urgenta de aproximativ {emergency_months:.1f} luni de cheltuieli"
+                    else f"ai deja un fond de urgenta de aproximativ {emergency_months:.1f} luni de cheltuieli si rate fixe"
                 )
             )
         else:
@@ -104,6 +106,14 @@ class AIService:
                 "you have no debt, which gives you more flexibility"
                 if english
                 else "nu ai datorii, ceea ce iti ofera mai multa flexibilitate"
+            )
+        if monthly_debt_obligations > 0:
+            improvements.append(
+                (
+                    f"you already have monthly loan obligations of about {monthly_debt_obligations:.0f} RON, which reduces the room available for new goals"
+                    if english
+                    else f"ai deja obligatii lunare de credit de aproximativ {monthly_debt_obligations:.0f} RON, ceea ce reduce spatiul disponibil pentru obiective noi"
+                )
             )
 
         goal_text = ", ".join(goals) if goals else (
@@ -154,8 +164,10 @@ class AIService:
         emergency_target_months = profile_data.get("emergency_fund_target_months", 6)
         savings = profile_data.get("savings", 0.0)
         debts = profile_data.get("debts", 0.0)
-        surplus = income - expenses
-        emergency_months = emergency_fund / expenses if expenses else 0.0
+        monthly_debt_obligations = profile_data.get("monthly_debt_obligations", 0.0)
+        committed_outflow = expenses + monthly_debt_obligations
+        surplus = income - expenses - monthly_debt_obligations
+        emergency_months = emergency_fund / committed_outflow if committed_outflow else 0.0
         english = is_english(locale)
 
         if surplus > 0:
@@ -193,6 +205,12 @@ class AIService:
             if english
             else "Datoriile merita atentia ta inainte de cresterea investitiilor."
         )
+        if monthly_debt_obligations > 0:
+            debt_note += (
+                f" Existing monthly loan obligations are about {monthly_debt_obligations:.0f} RON."
+                if english
+                else f" Obligatiile lunare existente din credite sunt de aproximativ {monthly_debt_obligations:.0f} RON."
+            )
 
         savings_note = (
             f"You keep about {savings:.0f} RON separately for goals or investing."
@@ -210,16 +228,17 @@ class AIService:
         if not has_profile:
             return (
                 "I can answer in general terms, but for a personal answer please complete your financial profile first. "
-                "Start with income, expenses, savings, debts, and your main goals."
+                "Start with income, expenses, savings, debts, existing monthly loan obligations, and your main goals."
                 if english
                 else "Pot sa iti raspund generic, dar pentru un raspuns personalizat completeaza mai intai profilul "
-                "financiar. Incepe cu venit, cheltuieli, economii, datorii si obiectivele tale principale."
+                "financiar. Incepe cu venit, cheltuieli, economii, datorii, obligatii lunare existente si obiectivele tale principale."
             )
 
         savings_capacity = context.get("monthly_savings_capacity", 0.0)
         emergency_months = context.get("emergency_fund_months", 0.0)
         emergency_target_months = context.get("emergency_fund_target_months", 6)
         emergency_fund_amount = context.get("emergency_fund_amount", 0.0)
+        monthly_debt_obligations = context.get("monthly_debt_obligations", 0.0)
         risk_score = context.get("risk_score")
         health_score = context.get("financial_health_score")
         allocation = context.get("recommendation_allocation", {})
@@ -261,10 +280,10 @@ class AIService:
         if any(keyword in lowered for keyword in ("dator", "credit", "imprumut", "loan", "debt")):
             return (
                 f"Your financial health score is {health_score}/100. If you have high-interest loans, it is usually worth "
-                "reducing those in parallel with building an emergency fund, while aggressive investing should stay secondary."
+                f"reducing those in parallel with building an emergency fund. You already have about {monthly_debt_obligations:.0f} RON/month in loan obligations, so aggressive investing should stay secondary."
                 if english
                 else f"Scorul tau de sanatate financiara este {health_score}/100. Daca ai credite cu dobanzi mari, "
-                "merita sa reduci acele datorii in paralel cu construirea unui fond de urgenta, iar investitiile "
+                f"merita sa reduci acele datorii in paralel cu construirea unui fond de urgenta. Ai deja aproximativ {monthly_debt_obligations:.0f} RON/luna in obligatii de credit, iar investitiile "
                 "agresive sa ramana pe planul doi."
             )
 
@@ -281,11 +300,11 @@ class AIService:
             )
 
         return (
-            f"Based on your current profile, your monthly savings capacity is about {savings_capacity:.0f} RON and your "
+            f"Based on your current profile, your monthly savings capacity is about {savings_capacity:.0f} RON, your existing monthly loan obligations are about {monthly_debt_obligations:.0f} RON, and your "
             f"emergency fund covers {emergency_months:.1f} months ({emergency_fund_amount:.0f} RON) against a target of {emergency_target_months} months. Complete the recommendation step to turn this into a concrete plan."
             if english
             else f"Pe baza profilului tau actual, ai o capacitate lunara de economisire de aproximativ "
-            f"{savings_capacity:.0f} RON si un fond de urgenta de {emergency_months:.1f} luni ({emergency_fund_amount:.0f} RON) fata de o tinta de {emergency_target_months} luni. "
+            f"{savings_capacity:.0f} RON, ai deja aproximativ {monthly_debt_obligations:.0f} RON/luna in obligatii de credit si un fond de urgenta de {emergency_months:.1f} luni ({emergency_fund_amount:.0f} RON) fata de o tinta de {emergency_target_months} luni. "
             "Completeaza pasul de recomandare pentru a transforma aceste date intr-un plan concret de alocare."
         )
 
@@ -314,6 +333,7 @@ class AIService:
 Financial profile:
 - Monthly income: {profile_data.get('monthly_income')} RON
 - Monthly expenses: {profile_data.get('monthly_expenses')} RON
+- Existing monthly loan obligations: {profile_data.get('monthly_debt_obligations')} RON
 - Emergency fund: {profile_data.get('emergency_fund')} RON
 - Goal / investment savings: {profile_data.get('savings')} RON
 - Debts: {profile_data.get('debts')} RON
@@ -338,6 +358,7 @@ Mention strengths and what could be improved.
 Profil financiar al utilizatorului:
 - Venit lunar: {profile_data.get('monthly_income')} RON
 - Cheltuieli lunare: {profile_data.get('monthly_expenses')} RON
+- Obligatii lunare existente din credite: {profile_data.get('monthly_debt_obligations')} RON
 - Fond de urgenta: {profile_data.get('emergency_fund')} RON
 - Economii pentru obiective / investitii: {profile_data.get('savings')} RON
 - Datorii: {profile_data.get('debts')} RON
@@ -384,6 +405,7 @@ Mentioneaza punctele forte si ce ar putea imbunatati.
 Analyze this financial situation and give a short summary:
 Income: {profile_data.get('monthly_income')} RON/month
 Expenses: {profile_data.get('monthly_expenses')} RON/month
+Existing monthly loan obligations: {profile_data.get('monthly_debt_obligations')} RON/month
 Emergency fund: {profile_data.get('emergency_fund')} RON
 Goal / investment savings: {profile_data.get('savings')} RON
 Debts: {profile_data.get('debts')} RON
@@ -393,6 +415,7 @@ Debts: {profile_data.get('debts')} RON
 Analizeaza aceasta situatie financiara si ofera un rezumat:
 Venit: {profile_data.get('monthly_income')} RON/luna
 Cheltuieli: {profile_data.get('monthly_expenses')} RON/luna
+Obligatii lunare existente din credite: {profile_data.get('monthly_debt_obligations')} RON/luna
 Fond de urgenta: {profile_data.get('emergency_fund')} RON
 Economii pentru obiective / investitii: {profile_data.get('savings')} RON
 Datorii: {profile_data.get('debts')} RON
@@ -415,6 +438,7 @@ You are an educational financial assistant. You help users understand personal f
 User context:
 - Monthly income: {context.get('monthly_income', 'unknown')} RON
 - Expenses: {context.get('monthly_expenses', 'unknown')} RON
+- Existing monthly loan obligations: {context.get('monthly_debt_obligations', 'unknown')} RON
 - Emergency fund: {context.get('emergency_fund_amount', 'unknown')} RON
 - Emergency fund target: {context.get('emergency_fund_target_months', 'unknown')} months
 - Goal / investment savings: {context.get('savings', 'unknown')} RON
@@ -438,6 +462,7 @@ Esti un asistent financiar educativ. Ajuti utilizatorii sa inteleaga finantele p
 Context utilizator:
 - Venit lunar: {context.get('monthly_income', 'necunoscut')} RON
 - Cheltuieli: {context.get('monthly_expenses', 'necunoscut')} RON
+- Obligatii lunare existente din credite: {context.get('monthly_debt_obligations', 'necunoscut')} RON
 - Fond de urgenta: {context.get('emergency_fund_amount', 'necunoscut')} RON
 - Tinta fond urgenta: {context.get('emergency_fund_target_months', 'necunoscut')} luni
 - Economii pentru obiective / investitii: {context.get('savings', 'necunoscut')} RON

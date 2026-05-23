@@ -161,27 +161,29 @@ class GoalService:
         self,
         monthly_income: float,
         monthly_expenses: float,
+        monthly_debt_obligations: float = 0.0,
         currency: str = "RON",
         locale: str = "ro",
     ) -> tuple[float, float, float, str]:
         english = is_english(locale)
         dti_limit_ratio = self._get_credit_dti_limit(currency)
-        disposable_income = max(0.0, monthly_income - monthly_expenses)
+        disposable_income = max(0.0, monthly_income - monthly_expenses - monthly_debt_obligations)
         dti_payment_cap = max(0.0, monthly_income * dti_limit_ratio)
-        monthly_payment_cap = max(0.0, min(disposable_income, dti_payment_cap))
+        dti_headroom = max(0.0, dti_payment_cap - monthly_debt_obligations)
+        monthly_payment_cap = max(0.0, min(disposable_income, dti_headroom))
         dti_percent = round(dti_limit_ratio * 100, 0)
 
         if monthly_payment_cap <= 0:
             note = (
-                f"Based on your current budget, I do not treat any new loan payment as realistic right now: free cash flow is about {disposable_income:.0f} RON/month, and the prudential debt-to-income ceiling used here is {dti_percent:.0f}% of net income."
+                f"Based on your current budget, I do not treat any new loan payment as realistic right now: free cash flow after expenses and current obligations is about {disposable_income:.0f} RON/month, and the prudential debt-to-income ceiling used here is {dti_percent:.0f}% of net income."
                 if english
-                else f"Pe bugetul tau actual, nu tratez nicio rata noua ca fiind realista acum: cashflow-ul liber este de aproximativ {disposable_income:.0f} lei/luna, iar plafonul prudent de indatorare folosit aici este de {dti_percent:.0f}% din venitul net."
+                else f"Pe bugetul tau actual, nu tratez nicio rata noua ca fiind realista acum: cashflow-ul liber dupa cheltuieli si obligatiile lunare curente este de aproximativ {disposable_income:.0f} lei/luna, iar plafonul prudent de indatorare folosit aici este de {dti_percent:.0f}% din venitul net."
             )
         else:
             note = (
-                f"I cap the realistic monthly loan payment at about {monthly_payment_cap:.0f} RON, using the lower of your free cash flow ({disposable_income:.0f} RON/month) and a prudential debt-to-income ceiling of {dti_percent:.0f}% of net income ({dti_payment_cap:.0f} RON/month)."
+                f"I cap the realistic monthly loan payment at about {monthly_payment_cap:.0f} RON, using the lower of your free cash flow after expenses and current obligations ({disposable_income:.0f} RON/month) and the remaining headroom under a prudential debt-to-income ceiling of {dti_percent:.0f}% of net income ({dti_headroom:.0f} RON/month after existing obligations)."
                 if english
-                else f"Limitez rata realista la aproximativ {monthly_payment_cap:.0f} lei/luna, folosind valoarea mai mica dintre cashflow-ul tau liber ({disposable_income:.0f} lei/luna) si un plafon prudent de indatorare de {dti_percent:.0f}% din venitul net ({dti_payment_cap:.0f} lei/luna)."
+                else f"Limitez rata realista la aproximativ {monthly_payment_cap:.0f} lei/luna, folosind valoarea mai mica dintre cashflow-ul tau liber dupa cheltuieli si obligatiile curente ({disposable_income:.0f} lei/luna) si spatiul ramas sub un plafon prudent de indatorare de {dti_percent:.0f}% din venitul net ({dti_headroom:.0f} lei/luna dupa obligatiile existente)."
             )
 
         return monthly_payment_cap, dti_limit_ratio * 100, disposable_income, note
@@ -463,6 +465,7 @@ class GoalService:
         self,
         monthly_income: float,
         monthly_expenses: float,
+        monthly_debt_obligations: float,
         emergency_fund: float,
         savings: float,
         debts: float,
@@ -484,7 +487,7 @@ class GoalService:
         ]
 
         emergency_months_current = emergency_fund / monthly_expenses if monthly_expenses else 0.0
-        debt_ratio = debts / max(monthly_income * 12, 1.0)
+        debt_ratio = monthly_debt_obligations / monthly_income if monthly_income > 0 else 0.0
         variants: list[GoalPlanVariantResponse] = []
 
         for config in configs:
@@ -583,6 +586,7 @@ class GoalService:
             normalized_target_amount = round(requested_target_amount * reference_fx_rate, 2)
 
         monthly_capacity = self.risk_service.get_monthly_savings_capacity(profile)
+        monthly_required_outflow = self.risk_service.get_monthly_required_outflow(profile)
         emergency_status = self.risk_service.get_emergency_fund_status(profile)
         simulator_max = self._build_simulator_max(profile.monthly_income, monthly_capacity)
         extra_monthly_savings = min(max(data.extra_monthly_savings, 0.0), simulator_max)
@@ -590,12 +594,12 @@ class GoalService:
         emergency_target_months = emergency_status["target_months"]
         emergency_fund_target = emergency_status["target_amount"]
         emergency_months_current = (
-            profile.emergency_fund / profile.monthly_expenses if profile.monthly_expenses else 0.0
+            profile.emergency_fund / monthly_required_outflow if monthly_required_outflow else 0.0
         )
-        debt_ratio = profile.debts / max(profile.monthly_income * 12, 1.0)
+        debt_ratio = self.risk_service.get_monthly_debt_service_ratio(profile)
 
         base_scenario = self._compute_scenario(
-            monthly_expenses=profile.monthly_expenses,
+            monthly_expenses=monthly_required_outflow,
             goal_savings=profile.savings,
             emergency_fund=profile.emergency_fund,
             target_amount=normalized_target_amount,
@@ -642,6 +646,7 @@ class GoalService:
             ) = self._build_credit_affordability_note(
                 profile.monthly_income,
                 profile.monthly_expenses,
+                profile.monthly_debt_obligations,
                 "RON",
                 locale,
             )
@@ -680,7 +685,7 @@ class GoalService:
             credit_fully_covers_gap = credit_affordable_amount + 0.01 >= base_scenario.funding_gap
 
         base_scenario = self._compute_scenario(
-            monthly_expenses=profile.monthly_expenses,
+            monthly_expenses=monthly_required_outflow,
             goal_savings=profile.savings,
             emergency_fund=profile.emergency_fund,
             target_amount=normalized_target_amount,
@@ -713,7 +718,8 @@ class GoalService:
 
         plan_variants, recommended_variant_id = self._build_plan_variants(
             monthly_income=profile.monthly_income,
-            monthly_expenses=profile.monthly_expenses,
+            monthly_expenses=monthly_required_outflow,
+            monthly_debt_obligations=profile.monthly_debt_obligations,
             emergency_fund=profile.emergency_fund,
             savings=profile.savings,
             debts=profile.debts,

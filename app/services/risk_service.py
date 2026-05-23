@@ -8,24 +8,38 @@ class RiskService:
     AI only explains - this service decides.
     """
 
+    def get_monthly_debt_obligations(self, profile: FinancialProfile) -> float:
+        return max(0.0, getattr(profile, "monthly_debt_obligations", 0.0) or 0.0)
+
+    def get_monthly_required_outflow(self, profile: FinancialProfile) -> float:
+        return max(0.0, profile.monthly_expenses + self.get_monthly_debt_obligations(profile))
+
+    def get_monthly_debt_service_ratio(self, profile: FinancialProfile) -> float:
+        monthly_income = profile.monthly_income
+        obligations = self.get_monthly_debt_obligations(profile)
+        return obligations / monthly_income if monthly_income > 0 else 0.0
+
     def get_emergency_target_months(self, profile: FinancialProfile) -> int:
         monthly_income = profile.monthly_income
-        monthly_expenses = profile.monthly_expenses
+        monthly_expenses = self.get_monthly_required_outflow(profile)
         debts = profile.debts
         savings_capacity = monthly_income - monthly_expenses
         savings_rate = savings_capacity / monthly_income if monthly_income > 0 else 0.0
-        debt_ratio = debts / (monthly_income * 12) if monthly_income > 0 else 0.0
+        debt_ratio = self.get_monthly_debt_service_ratio(profile)
+        total_debt_ratio = debts / (monthly_income * 12) if monthly_income > 0 else 0.0
 
         if (
             profile.risk_profile == "conservative"
             or savings_capacity <= 0
             or debt_ratio >= 0.4
+            or total_debt_ratio >= 0.8
         ):
             return 9
         if (
             profile.risk_profile == "aggressive"
             and savings_rate >= 0.2
             and debt_ratio <= 0.2
+            and total_debt_ratio <= 0.2
         ):
             return 3
         return 6
@@ -38,9 +52,10 @@ class RiskService:
         score = 50  # baseline
 
         monthly_income = profile.monthly_income
-        monthly_expenses = profile.monthly_expenses
+        monthly_expenses = self.get_monthly_required_outflow(profile)
         emergency_fund = getattr(profile, "emergency_fund", 0.0)
         debts = profile.debts
+        debt_obligations = self.get_monthly_debt_obligations(profile)
 
         # 1. Savings rate bonus/penalty
         savings_rate = (monthly_income - monthly_expenses) / monthly_income if monthly_income > 0 else 0
@@ -64,15 +79,19 @@ class RiskService:
             score -= 15  # no emergency fund = cannot take risks
 
         # 3. Debt-to-income ratio
-        dti = debts / (monthly_income * 12) if monthly_income > 0 else 0
-        if dti == 0:
+        dti = self.get_monthly_debt_service_ratio(profile)
+        leverage_ratio = debts / (monthly_income * 12) if monthly_income > 0 else 0
+        if dti == 0 and leverage_ratio == 0:
             score += 10
-        elif dti < 0.2:
+        elif dti < 0.2 and leverage_ratio < 0.5:
             score += 5
-        elif dti < 0.4:
+        elif dti < 0.4 and leverage_ratio < 1.0:
             pass  # neutral
         else:
             score -= 20  # high debt
+
+        if debt_obligations >= monthly_income * 0.35:
+            score -= 10
 
         # 4. Risk profile preference adjustment
         if profile.risk_profile == "aggressive":
@@ -89,9 +108,10 @@ class RiskService:
         score = 50
 
         monthly_income = profile.monthly_income
-        monthly_expenses = profile.monthly_expenses
+        monthly_expenses = self.get_monthly_required_outflow(profile)
         emergency_fund = getattr(profile, "emergency_fund", 0.0)
         debts = profile.debts
+        debt_obligations = self.get_monthly_debt_obligations(profile)
 
         # Savings rate
         savings_rate = (monthly_income - monthly_expenses) / monthly_income if monthly_income > 0 else 0
@@ -113,11 +133,11 @@ class RiskService:
             score -= 15
 
         # Debt burden
-        if debts == 0:
+        if debts == 0 and debt_obligations == 0:
             score += 15
-        elif debts < monthly_income * 3:
+        elif debt_obligations <= monthly_income * 0.15 and debts < monthly_income * 3:
             score += 5
-        elif debts > monthly_income * 12:
+        elif debt_obligations >= monthly_income * 0.4 or debts > monthly_income * 12:
             score -= 20
 
         return max(0, min(100, score))
@@ -150,13 +170,14 @@ class RiskService:
             }
 
     def get_monthly_savings_capacity(self, profile: FinancialProfile) -> float:
-        return max(0.0, profile.monthly_income - profile.monthly_expenses)
+        return max(0.0, profile.monthly_income - self.get_monthly_required_outflow(profile))
 
     def get_emergency_fund_status(self, profile: FinancialProfile) -> dict:
         current_amount = getattr(profile, "emergency_fund", 0.0)
         target_months = self.get_emergency_target_months(profile)
-        months = current_amount / profile.monthly_expenses if profile.monthly_expenses > 0 else 0
-        target = profile.monthly_expenses * target_months
+        required_outflow = self.get_monthly_required_outflow(profile)
+        months = current_amount / required_outflow if required_outflow > 0 else 0
+        target = required_outflow * target_months
         shortfall = max(0.0, target - current_amount)
         return {
             "current_months": round(months, 1),

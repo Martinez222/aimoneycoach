@@ -28,7 +28,7 @@ const translations = {
     "profile.title": "Profil financiar",
     "profile.hint": "Separi fondul de urgenta de economiile pentru obiective, apoi chat-ul devine personalizat.",
     "profile.income": "Venit lunar",
-    "profile.expenses": "Cheltuieli lunare",
+    "profile.expenses": "Cheltuieli lunare fara rate",
     "profile.age": "Varsta",
     "profile.creditGender": "Sex pentru eligibilitate credit",
     "profile.genderMale": "Barbat",
@@ -44,7 +44,8 @@ const translations = {
     "profile.emergencyPreviewShortfall": "Iti mai lipsesc aproximativ {amount} RON pentru bufferul recomandat.",
     "profile.emergencyPreviewReady": "Fondul tau de urgenta este deja in zona recomandata.",
     "profile.savings": "Economii pentru obiective",
-    "profile.debts": "Datorii",
+    "profile.debts": "Datorii totale",
+    "profile.monthlyDebtObligations": "Rate / alte obligatii lunare",
     "profile.riskProfile": "Profil de risc",
     "profile.riskConservative": "Conservator",
     "profile.riskModerate": "Moderat",
@@ -205,7 +206,7 @@ const translations = {
     "profile.title": "Financial profile",
     "profile.hint": "Keep your emergency fund separate from goal savings, then the chat becomes personalized.",
     "profile.income": "Monthly income",
-    "profile.expenses": "Monthly expenses",
+    "profile.expenses": "Monthly expenses excluding loan payments",
     "profile.age": "Age",
     "profile.creditGender": "Sex used for credit eligibility",
     "profile.genderMale": "Male",
@@ -221,7 +222,8 @@ const translations = {
     "profile.emergencyPreviewShortfall": "You are still short by about {amount} RON for the recommended buffer.",
     "profile.emergencyPreviewReady": "Your emergency fund is already within the recommended zone.",
     "profile.savings": "Goal savings",
-    "profile.debts": "Debts",
+    "profile.debts": "Total debts",
+    "profile.monthlyDebtObligations": "Loan payments / other monthly obligations",
     "profile.riskProfile": "Risk profile",
     "profile.riskConservative": "Conservative",
     "profile.riskModerate": "Moderate",
@@ -710,16 +712,18 @@ function formatTerm(months) {
 function computeEmergencyTargetMonths() {
   const income = Number(profileForm.elements.monthly_income.value || 0);
   const expenses = Number(profileForm.elements.monthly_expenses.value || 0);
+  const monthlyDebtObligations = Number(profileForm.elements.monthly_debt_obligations.value || 0);
   const debts = Number(profileForm.elements.debts.value || 0);
   const riskProfile = profileForm.elements.risk_profile.value || "moderate";
-  const savingsCapacity = income - expenses;
+  const savingsCapacity = income - expenses - monthlyDebtObligations;
   const savingsRate = income > 0 ? savingsCapacity / income : 0;
-  const debtRatio = income > 0 ? debts / (income * 12) : 0;
+  const debtRatio = income > 0 ? monthlyDebtObligations / income : 0;
+  const totalDebtRatio = income > 0 ? debts / (income * 12) : 0;
 
-  if (riskProfile === "conservative" || savingsCapacity <= 0 || debtRatio >= 0.4) {
+  if (riskProfile === "conservative" || savingsCapacity <= 0 || debtRatio >= 0.4 || totalDebtRatio >= 0.8) {
     return 9;
   }
-  if (riskProfile === "aggressive" && savingsRate >= 0.2 && debtRatio <= 0.2) {
+  if (riskProfile === "aggressive" && savingsRate >= 0.2 && debtRatio <= 0.2 && totalDebtRatio <= 0.2) {
     return 3;
   }
   return 6;
@@ -731,17 +735,19 @@ function updateEmergencyPreview() {
   }
 
   const expenses = Number(profileForm.elements.monthly_expenses.value || 0);
+  const monthlyDebtObligations = Number(profileForm.elements.monthly_debt_obligations.value || 0);
   const emergencyFund = Number(profileForm.elements.emergency_fund.value || 0);
+  const committedOutflow = expenses + monthlyDebtObligations;
 
-  if (expenses <= 0) {
+  if (committedOutflow <= 0) {
     emergencyPreviewTitle.textContent = t("profile.emergencyPreviewDefault");
     emergencyPreviewMeta.textContent = "";
     return;
   }
 
-  const currentMonths = emergencyFund / expenses;
+  const currentMonths = emergencyFund / committedOutflow;
   const targetMonths = computeEmergencyTargetMonths();
-  const targetAmount = targetMonths * expenses;
+  const targetAmount = targetMonths * committedOutflow;
   const shortfall = Math.max(0, targetAmount - emergencyFund);
 
   emergencyPreviewTitle.textContent = t("profile.emergencyPreviewCurrent", {
@@ -1132,6 +1138,7 @@ function renderOverview(overview) {
   if (snapshot) {
     profileForm.elements.monthly_income.value = snapshot.monthly_income;
     profileForm.elements.monthly_expenses.value = snapshot.monthly_expenses;
+    profileForm.elements.monthly_debt_obligations.value = snapshot.monthly_debt_obligations ?? 0;
     profileForm.elements.age.value = snapshot.age ?? "";
     profileForm.elements.credit_gender.value = snapshot.credit_gender || "male";
     profileForm.elements.emergency_fund.value = snapshot.emergency_fund.current_amount;
@@ -1484,6 +1491,7 @@ profileForm.addEventListener("submit", async (event) => {
   const payload = {
     monthly_income: Number(profileForm.elements.monthly_income.value),
     monthly_expenses: Number(profileForm.elements.monthly_expenses.value),
+    monthly_debt_obligations: Number(profileForm.elements.monthly_debt_obligations.value || 0),
     age: profileForm.elements.age.value ? Number(profileForm.elements.age.value) : null,
     credit_gender: profileForm.elements.credit_gender.value || null,
     emergency_fund: Number(profileForm.elements.emergency_fund.value || 0),

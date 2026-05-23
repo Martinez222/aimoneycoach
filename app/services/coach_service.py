@@ -42,6 +42,7 @@ class CoachService:
             {
                 "monthly_income": profile.monthly_income,
                 "monthly_expenses": profile.monthly_expenses,
+                "monthly_debt_obligations": profile.monthly_debt_obligations,
                 "emergency_fund": profile.emergency_fund,
                 "emergency_fund_target_months": emergency_fund["target_months"],
                 "emergency_fund_target_amount": emergency_fund["target_amount"],
@@ -54,6 +55,7 @@ class CoachService:
         return FinancialSnapshotResponse(
             monthly_income=profile.monthly_income,
             monthly_expenses=profile.monthly_expenses,
+            monthly_debt_obligations=profile.monthly_debt_obligations,
             age=profile.age,
             credit_gender=profile.credit_gender,
             monthly_savings_capacity=self.risk_service.get_monthly_savings_capacity(profile),
