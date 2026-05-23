@@ -1,3 +1,5 @@
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -8,15 +10,35 @@ from app.config import settings
 def _normalize_database_url(raw_url: str) -> str:
     if raw_url.startswith("sqlite+aiosqlite://"):
         return raw_url
+
+    normalized = raw_url
     if raw_url.startswith("postgresql+asyncpg://"):
-        return raw_url
-    if raw_url.startswith("postgres://"):
-        return raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
-    if raw_url.startswith("postgresql://"):
-        return raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    if raw_url.startswith("postgresql+psycopg://"):
-        return raw_url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
-    return raw_url
+        normalized = raw_url
+    elif raw_url.startswith("postgres://"):
+        normalized = raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif raw_url.startswith("postgresql://"):
+        normalized = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif raw_url.startswith("postgresql+psycopg://"):
+        normalized = raw_url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
+
+    if not normalized.startswith("postgresql+asyncpg://"):
+        return normalized
+
+    parts = urlsplit(normalized)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    sslmode = query.pop("sslmode", None)
+    if sslmode and "ssl" not in query:
+        query["ssl"] = "require" if sslmode == "require" else sslmode
+
+    return urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urlencode(query),
+            parts.fragment,
+        )
+    )
 
 
 DATABASE_URL = _normalize_database_url(settings.database_url)
